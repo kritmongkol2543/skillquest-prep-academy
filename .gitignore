@@ -30,6 +30,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
 .vercel
@@ -42,3 +43,5 @@ next-env.d.ts
 /work/
 /tmp/
 .sites-dev.*.log
+skillquest-site.tar.gz
+*.tsbuildinfo

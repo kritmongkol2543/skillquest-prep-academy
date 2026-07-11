@@ -25,6 +25,10 @@ The site should open and be usable immediately without a user account or login s
 - Do not add a full user account or login system unless explicitly requested later.
 - Any persisted score, ranking, attempt history, profile name, or dashboard insight data should be designed around Supabase.
 - Supabase security rules must be handled carefully if any public browser writes are added later. Avoid exposing service-role keys in frontend code.
+- Host the frontend as a static export on GitHub Pages.
+- Use invisible Supabase Anonymous Auth so the site remains immediately usable without a login screen while RLS can isolate each browser's data.
+- Keep correct answers and leaderboard internals in an unexposed private schema; grade attempts only through a JWT-protected Edge API.
+- Preserve attempts locally during network loss and make remote submission idempotent when retried.
 
 ## Product Direction
 

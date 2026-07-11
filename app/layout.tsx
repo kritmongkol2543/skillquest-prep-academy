@@ -1,24 +1,31 @@
 import type { Metadata } from "next";
-import { headers } from "next/headers";
 import "./globals.css";
 
-export async function generateMetadata(): Promise<Metadata> {
-  const requestHeaders = await headers();
-  const host = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host") ?? "localhost:3000";
-  const protocol = requestHeaders.get("x-forwarded-proto") ?? (host.includes("localhost") ? "http" : "https");
-  const origin = `${protocol}://${host}`;
-  const title = "SkillQuest — เตรียมพร้อมทุกสนามสอบ";
-  const description = "ฝึกทำข้อสอบ ติดตามพัฒนาการ และวางแผนเตรียมสอบเข้าโรงเรียนเตรียมทหารอย่างเป็นระบบ";
+export const metadata: Metadata = {
+  title: "SkillQuest — เตรียมพร้อมทุกสนามสอบ",
+  description: "ฝึกทำข้อสอบ ติดตามพัฒนาการ และวางแผนเตรียมสอบเข้าโรงเรียนเตรียมทหารอย่างเป็นระบบ",
+  icons: { icon: "/favicon.svg", shortcut: "/favicon.svg" },
+  openGraph: {
+    title: "SkillQuest — เตรียมพร้อมทุกสนามสอบ",
+    description: "ฝึกทำข้อสอบและติดตามพัฒนาการอย่างเป็นระบบ",
+    type: "website",
+  },
+  twitter: { card: "summary_large_image", title: "SkillQuest — เตรียมพร้อมทุกสนามสอบ" },
+};
 
-  return {
-    title,
-    description,
-    icons: { icon: "/favicon.svg", shortcut: "/favicon.svg" },
-    openGraph: { title, description, type: "website", url: origin, images: [{ url: `${origin}/og.png`, width: 1736, height: 908, alt: "SkillQuest — เตรียมพร้อมทุกสนามสอบ" }] },
-    twitter: { card: "summary_large_image", title, description, images: [`${origin}/og.png`] },
-  };
-}
+const csp = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data:",
+  "font-src 'self' data:",
+  "connect-src 'self' https://pttsjpmwvppkaacgzdqh.supabase.co wss://pttsjpmwvppkaacgzdqh.supabase.co",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "upgrade-insecure-requests",
+].join("; ");
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="th"><body>{children}</body></html>;
+  return <html lang="th"><head><meta httpEquiv="Content-Security-Policy" content={csp}/><meta name="referrer" content="strict-origin-when-cross-origin"/></head><body>{children}</body></html>;
 }

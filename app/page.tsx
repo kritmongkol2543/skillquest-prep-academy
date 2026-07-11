@@ -1,6 +1,16 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import {
+  ensureAnonymousSession,
+  loadLeaderboard,
+  loadRemoteAttempts,
+  saveRemoteProfile,
+  submitRemoteAttempt,
+  type AttemptResult,
+  type LeaderboardEntry,
+  type RemoteAttempt,
+} from "@/lib/supabase";
 
 type View = "dashboard" | "ranking" | "exam";
 type QuestionState = "viewed" | "paused" | "answered" | "changed_answer" | "reviewed";
@@ -13,17 +23,18 @@ const subjects = [
   { name: "วิทยาศาสตร์", mastery: 68, delta: "+4", color: "cyan" },
 ];
 
+const SET_ID = "10000000-0000-4000-8000-000000000001";
 const questions = [
-  { q: "ถ้า 3x + 7 = 22 แล้ว x มีค่าเท่าใด?", choices: ["3", "5", "7", "9"] },
-  { q: "จำนวนใดเป็นจำนวนเฉพาะ?", choices: ["21", "27", "29", "33"] },
-  { q: "พื้นที่ของสี่เหลี่ยมจัตุรัสด้านยาว 8 ซม. เท่ากับเท่าใด?", choices: ["16 ตร.ซม.", "32 ตร.ซม.", "64 ตร.ซม.", "80 ตร.ซม."] },
-  { q: "3/4 เขียนเป็นทศนิยมได้ข้อใด?", choices: ["0.25", "0.50", "0.75", "1.25"] },
-  { q: "ค่าเฉลี่ยของ 6, 8 และ 10 เท่ากับเท่าใด?", choices: ["7", "8", "9", "10"] },
-  { q: "มุมตรงมีขนาดกี่องศา?", choices: ["45°", "90°", "180°", "360°"] },
-  { q: "2⁵ มีค่าเท่าใด?", choices: ["10", "16", "25", "32"] },
-  { q: "จำนวนถัดไปของ 2, 4, 8, 16 คือข้อใด?", choices: ["18", "24", "30", "32"] },
-  { q: "รากที่สองของ 144 คือข้อใด?", choices: ["10", "11", "12", "14"] },
-  { q: "15% ของ 200 เท่ากับเท่าใด?", choices: ["15", "20", "30", "45"] },
+  { id: "20000000-0000-4000-8000-000000000001", q: "ถ้า 3x + 7 = 22 แล้ว x มีค่าเท่าใด?", choices: ["3", "5", "7", "9"] },
+  { id: "20000000-0000-4000-8000-000000000002", q: "จำนวนใดเป็นจำนวนเฉพาะ?", choices: ["21", "27", "29", "33"] },
+  { id: "20000000-0000-4000-8000-000000000003", q: "พื้นที่ของสี่เหลี่ยมจัตุรัสด้านยาว 8 ซม. เท่ากับเท่าใด?", choices: ["16 ตร.ซม.", "32 ตร.ซม.", "64 ตร.ซม.", "80 ตร.ซม."] },
+  { id: "20000000-0000-4000-8000-000000000004", q: "3/4 เขียนเป็นทศนิยมได้ข้อใด?", choices: ["0.25", "0.50", "0.75", "1.25"] },
+  { id: "20000000-0000-4000-8000-000000000005", q: "ค่าเฉลี่ยของ 6, 8 และ 10 เท่ากับเท่าใด?", choices: ["7", "8", "9", "10"] },
+  { id: "20000000-0000-4000-8000-000000000006", q: "มุมตรงมีขนาดกี่องศา?", choices: ["45°", "90°", "180°", "360°"] },
+  { id: "20000000-0000-4000-8000-000000000007", q: "2⁵ มีค่าเท่าใด?", choices: ["10", "16", "25", "32"] },
+  { id: "20000000-0000-4000-8000-000000000008", q: "จำนวนถัดไปของ 2, 4, 8, 16 คือข้อใด?", choices: ["18", "24", "30", "32"] },
+  { id: "20000000-0000-4000-8000-000000000009", q: "รากที่สองของ 144 คือข้อใด?", choices: ["10", "11", "12", "14"] },
+  { id: "20000000-0000-4000-8000-000000000010", q: "15% ของ 200 เท่ากับเท่าใด?", choices: ["15", "20", "30", "45"] },
 ];
 
 const history = [
@@ -64,6 +75,13 @@ export default function Home() {
   const [submitOpen, setSubmitOpen] = useState(false);
   const [range, setRange] = useState("30 วัน");
   const [saved, setSaved] = useState(false);
+  const [clientNonce, setClientNonce] = useState("");
+  const [backendStatus, setBackendStatus] = useState<"connecting" | "online" | "offline">("connecting");
+  const [backendMessage, setBackendMessage] = useState("");
+  const [remoteAttempts, setRemoteAttempts] = useState<RemoteAttempt[]>([]);
+  const [remoteLeaders, setRemoteLeaders] = useState<LeaderboardEntry[]>([]);
+  const [result, setResult] = useState<AttemptResult | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   const answeredCount = Object.keys(answers).length;
   const remaining = questions.length - answeredCount;
@@ -72,14 +90,31 @@ export default function Home() {
   useEffect(() => {
     const savedName = localStorage.getItem("skillquest-name");
     if (savedName) setName(savedName);
+    const nextNonce = localStorage.getItem("skillquest-attempt-nonce") ?? crypto.randomUUID();
+    localStorage.setItem("skillquest-attempt-nonce", nextNonce);
+    setClientNonce(nextNonce);
     const raw = localStorage.getItem("skillquest-attempt");
-    if (!raw) return;
-    try {
+    if (raw) try {
       const data = JSON.parse(raw);
       setAnswers(data.answers ?? {}); setStates(data.states ?? {});
       setCurrent(data.current ?? 0); setSeconds(data.seconds ?? 0);
       setResumeOpen(data.status === "paused");
     } catch { /* Keep the safe defaults. */ }
+
+    const initialName = savedName ?? "Boss";
+    void (async () => {
+      try {
+        await ensureAnonymousSession(initialName);
+        const [attemptRows, leaderRows] = await Promise.all([loadRemoteAttempts(), loadLeaderboard()]);
+        setRemoteAttempts(attemptRows); setRemoteLeaders(leaderRows);
+        setBackendStatus("online");
+      } catch (error) {
+        setBackendStatus("offline");
+        setBackendMessage(error instanceof Error && error.message.includes("Anonymous sign-ins are disabled")
+          ? "ระบบฐานข้อมูลรอเปิด Anonymous Sign-In"
+          : "ใช้งานแบบออฟไลน์ ข้อมูลในเครื่องยังปลอดภัย");
+      }
+    })();
   }, []);
 
   useEffect(() => {
@@ -96,6 +131,17 @@ export default function Home() {
   }, [answers, states, current, seconds, running]);
 
   const chartPoints = useMemo(() => range === "30 วัน" ? "0,86 48,67 96,72 144,38 192,52 240,24 288,35 336,12" : "0,78 48,72 96,50 144,63 192,34 240,44 288,18 336,26", [range]);
+  const averageAccuracy = remoteAttempts.length ? Math.round(remoteAttempts.reduce((sum, item) => sum + Number(item.accuracy), 0) / remoteAttempts.length) : 82;
+  const totalSeconds = remoteAttempts.reduce((sum, item) => sum + item.elapsed_seconds, 0);
+  const remoteHistory = remoteAttempts.map((item) => ({
+    date: new Intl.DateTimeFormat("th-TH", { day: "numeric", month: "short" }).format(new Date(item.submitted_at)),
+    subject: item.question_sets?.subject ?? "แบบทดสอบ",
+    set: item.question_sets?.title ?? "ชุดฝึก",
+    score: `${item.correct_count}/${item.total_questions}`,
+    accuracy: `${Math.round(Number(item.accuracy))}%`,
+    time: formatTime(item.elapsed_seconds).slice(3),
+    status: "สำเร็จ",
+  }));
 
   function openExam() { setView("exam"); setRunning(true); }
   function goTo(index: number) {
@@ -107,9 +153,33 @@ export default function Home() {
     setAnswers((prev) => ({ ...prev, [current]: choice }));
     setStates((prev) => ({ ...prev, [current]: changed ? "changed_answer" : "answered" }));
   }
-  function saveName() {
+  async function saveName() {
     const clean = name.trim() || "ผู้เตรียมสอบ";
     setName(clean); localStorage.setItem("skillquest-name", clean); setEditingName(false);
+    if (backendStatus === "online") {
+      try { await saveRemoteProfile(clean); setRemoteLeaders(await loadLeaderboard()); }
+      catch { setBackendMessage("บันทึกชื่อในเครื่องแล้ว และจะซิงก์ใหม่ภายหลัง"); }
+    }
+  }
+  async function handleSubmit() {
+    if (remaining > 0) { setSubmitOpen(true); return; }
+    if (backendStatus !== "online" || !clientNonce) {
+      setBackendMessage("ยังส่งผลไม่ได้ในขณะออฟไลน์ คำตอบถูกเก็บไว้ในเครื่องแล้ว");
+      return;
+    }
+    setSubmitting(true); setRunning(false);
+    try {
+      const keyedAnswers = Object.fromEntries(Object.entries(answers).map(([index, choice]) => [questions[Number(index)].id, choice]));
+      const submitted = await submitRemoteAttempt({ set_id: SET_ID, answers: keyedAnswers, elapsed_seconds: Math.max(30, seconds), client_nonce: clientNonce });
+      setResult(submitted);
+      const [attemptRows, leaderRows] = await Promise.all([loadRemoteAttempts(), loadLeaderboard()]);
+      setRemoteAttempts(attemptRows); setRemoteLeaders(leaderRows);
+      localStorage.removeItem("skillquest-attempt");
+      localStorage.removeItem("skillquest-attempt-nonce");
+    } catch (error) {
+      setRunning(true);
+      setBackendMessage(error instanceof Error && error.message === "RATE_LIMITED" ? "ส่งข้อสอบถี่เกินไป กรุณารอสักครู่" : "ส่งผลไม่สำเร็จ คำตอบยังอยู่ในเครื่องและลองใหม่ได้");
+    } finally { setSubmitting(false); }
   }
 
   return (
@@ -131,7 +201,7 @@ export default function Home() {
       <section className="workspace">
         <header className="topbar">
           <button className="mobile-brand" onClick={() => setView("dashboard")}><span className="brand-mark">SQ</span><b>SkillQuest</b></button>
-          <span className="today">วันเสาร์ที่ 11 กรกฎาคม</span>
+          <span className="today">วันเสาร์ที่ 11 กรกฎาคม <i className={`sync-status ${backendStatus}`}>{backendStatus === "online" ? "ซิงก์แล้ว" : backendStatus === "connecting" ? "กำลังเชื่อมต่อ" : "ออฟไลน์"}</i></span>
           <div className="top-summary"><span><b>12</b> วันต่อเนื่อง</span><span><b>12,450</b> คะแนน</span><span className="avatar small">{initials}</span></div>
         </header>
 
@@ -147,10 +217,10 @@ export default function Home() {
           </section>
 
           <section className="metric-row" aria-label="สถิติสำคัญ">
-            <article><span>คะแนนเฉลี่ย</span><b>82%</b><small className="positive">↑ 6% จากเดือนก่อน</small></article>
-            <article><span>เวลาฝึกทั้งหมด</span><b>18.4 ชม.</b><small>เดือนนี้ 6 ชม. 20 นาที</small></article>
-            <article><span>ทำข้อสอบแล้ว</span><b>24 ชุด</b><small>สำเร็จ 22 · ยกเลิก 2</small></article>
-            <article><span>อันดับปัจจุบัน</span><b>#3</b><small className="positive">Top 12% ของกลุ่ม</small></article>
+            <article><span>คะแนนเฉลี่ย</span><b>{averageAccuracy}%</b><small className="positive">คำนวณจากผลที่ส่งสำเร็จ</small></article>
+            <article><span>เวลาฝึกที่ซิงก์แล้ว</span><b>{totalSeconds ? `${(totalSeconds / 3600).toFixed(1)} ชม.` : "—"}</b><small>เวลาพักไม่นำมาคำนวณ</small></article>
+            <article><span>ทำข้อสอบแล้ว</span><b>{remoteAttempts.length || 24} ชุด</b><small>{backendStatus === "online" ? "ข้อมูลจาก Supabase" : "กำลังใช้ข้อมูลตัวอย่าง"}</small></article>
+            <article><span>อันดับปัจจุบัน</span><b>{remoteLeaders.length ? `#${Math.max(1, remoteLeaders.findIndex((item) => item.display_name === name) + 1)}` : "#3"}</b><small className="positive">อันดับจากผลที่ผ่านการตรวจคะแนน</small></article>
           </section>
 
           <section className="dashboard-grid">
@@ -166,22 +236,23 @@ export default function Home() {
             <div className="subject-list">{subjects.map((s) => <div className="subject-row" key={s.name}><div><b>{s.name}</b><small className="positive">{s.delta}%</small></div><div className="progress"><i className={s.color} style={{ width: `${s.mastery}%` }} /></div><strong>{s.mastery}%</strong></div>)}</div>
           </section>
 
-          <section className="panel history-card"><div className="section-heading"><div><h2>ประวัติล่าสุด</h2><p>ผู้ปกครองสามารถดูความสม่ำเสมอและผลการฝึกได้จากที่นี่</p></div><button className="text-button">ดูทั้งหมด</button></div><div className="history-table"><div className="history-head"><span>วันที่</span><span>ชุดข้อสอบ</span><span>คะแนน</span><span>ความแม่นยำ</span><span>เวลาที่ใช้</span><span>สถานะ</span></div>{history.map((h) => <div className="history-row" key={h.set}><span>{h.date}</span><span><b>{h.subject}</b><small>{h.set}</small></span><span>{h.score}</span><span>{h.accuracy}</span><span>{h.time}</span><span className={h.status === "สำเร็จ" ? "status success" : "status cancelled"}>{h.status}</span></div>)}</div></section>
+          <section className="panel history-card"><div className="section-heading"><div><h2>ประวัติล่าสุด</h2><p>ผู้ปกครองสามารถดูความสม่ำเสมอและผลการฝึกได้จากที่นี่</p></div><button className="text-button">ดูทั้งหมด</button></div><div className="history-table"><div className="history-head"><span>วันที่</span><span>ชุดข้อสอบ</span><span>คะแนน</span><span>ความแม่นยำ</span><span>เวลาที่ใช้</span><span>สถานะ</span></div>{(remoteHistory.length ? remoteHistory : history).map((h) => <div className="history-row" key={`${h.set}-${h.date}`}><span>{h.date}</span><span><b>{h.subject}</b><small>{h.set}</small></span><span>{h.score}</span><span>{h.accuracy}</span><span>{h.time}</span><span className={h.status === "สำเร็จ" ? "status success" : "status cancelled"}>{h.status}</span></div>)}</div></section>
 
-          <section className="profile-settings"><div><span className="avatar large">{initials}</span><div><h2>ชื่อที่ใช้แสดงคะแนน</h2><p>ชื่อนี้จะแสดงในอันดับและรายงานผล ไม่มีการสร้างบัญชีผู้ใช้</p></div></div>{editingName ? <form onSubmit={(e) => { e.preventDefault(); saveName(); }}><input autoFocus value={name} maxLength={24} onChange={(e) => setName(e.target.value)} aria-label="ชื่อที่ใช้แสดง"/><button className="primary" type="submit">บันทึก</button></form> : <button className="secondary" onClick={() => setEditingName(true)}>เปลี่ยนชื่อ</button>}</section>
+          {backendMessage && <p className="system-note" role="status">{backendMessage}</p>}
+          <section className="profile-settings"><div><span className="avatar large">{initials}</span><div><h2>ชื่อที่ใช้แสดงคะแนน</h2><p>ชื่อนี้จะแสดงในอันดับและรายงานผล ระบบสร้างเพียงรหัสนิรนามเบื้องหลัง</p></div></div>{editingName ? <form onSubmit={(e) => { e.preventDefault(); void saveName(); }}><input autoFocus value={name} maxLength={24} minLength={2} onChange={(e) => setName(e.target.value)} aria-label="ชื่อที่ใช้แสดง"/><button className="primary" type="submit">บันทึก</button></form> : <button className="secondary" onClick={() => setEditingName(true)}>เปลี่ยนชื่อ</button>}</section>
         </div>}
 
         {view === "ranking" && <div className="page ranking-page">
           <div className="welcome"><div><p>อันดับประจำสัปดาห์</p><h1>ความสม่ำเสมอพาไปข้างหน้า</h1><span>คะแนนอันดับคิดจากความแม่นยำ ความเร็ว และพัฒนาการ ไม่ใช่คะแนนดิบอย่างเดียว</span></div><div className="season"><small>สิ้นสุดฤดูกาลใน</small><b>12 วัน 08:42:19</b></div></div>
           <section className="rank-summary"><div><span>อันดับของคุณ</span><b>#3</b><small>Top 12% ของกลุ่ม</small></div><div><span>ระดับปัจจุบัน</span><b>Platinum III</b><small>อีก 550 คะแนนถึง Diamond</small></div><div><span>พัฒนาการสัปดาห์นี้</span><b className="positive">+12%</b><small>อันดับดีขึ้น 2 ตำแหน่ง</small></div></section>
-          <section className="panel leaderboard"><div className="section-heading"><div><h2>ผู้ฝึกที่โดดเด่น</h2><p>อัปเดตจากผลการฝึกล่าสุด</p></div><span className="updated">อัปเดต 5 นาทีที่แล้ว</span></div><div className="leader-list">{leaders.map((l, i) => <div className={`leader-row ${l.me ? "me" : ""}`} key={l.name}><span className={`position p${i + 1}`}>{i + 1}</span><span className="avatar">{l.me ? initials : l.initials}</span><span className="leader-name"><b>{l.me ? name : l.name}{l.me && " (คุณ)"}</b><small>{i < 2 ? "Diamond" : i < 4 ? "Platinum" : "Gold"}</small></span><span className="gain">{l.gain}</span><span className="leader-points"><b>{l.points}</b><small>คะแนนอันดับ</small></span></div>)}</div></section>
+          <section className="panel leaderboard"><div className="section-heading"><div><h2>ผู้ฝึกที่โดดเด่น</h2><p>แสดงเฉพาะคะแนนที่ตรวจจากฐานข้อมูลแล้ว</p></div><span className="updated">{backendStatus === "online" ? "ข้อมูลล่าสุด" : "ข้อมูลตัวอย่าง"}</span></div><div className="leader-list">{remoteLeaders.length ? remoteLeaders.map((l, i) => { const me = l.display_name === name; return <div className={`leader-row ${me ? "me" : ""}`} key={l.public_id}><span className={`position p${i + 1}`}>{l.rank_position}</span><span className="avatar">{l.display_name.slice(0, 1).toUpperCase()}</span><span className="leader-name"><b>{l.display_name}{me && " (คุณ)"}</b><small>{i < 2 ? "Diamond" : i < 4 ? "Platinum" : "Gold"}</small></span><span className="gain">{Math.round(Number(l.accuracy_avg))}%</span><span className="leader-points"><b>{Number(l.ranking_points).toLocaleString()}</b><small>คะแนนอันดับ</small></span></div> }) : leaders.map((l, i) => <div className={`leader-row ${l.me ? "me" : ""}`} key={l.name}><span className={`position p${i + 1}`}>{i + 1}</span><span className="avatar">{l.me ? initials : l.initials}</span><span className="leader-name"><b>{l.me ? name : l.name}{l.me && " (คุณ)"}</b><small>{i < 2 ? "Diamond" : i < 4 ? "Platinum" : "Gold"}</small></span><span className="gain">{l.gain}</span><span className="leader-points"><b>{l.points}</b><small>คะแนนอันดับ</small></span></div>)}</div></section>
           <section className="ranking-note"><h2>ระบบคิดคะแนนอย่างไร</h2><p>ระบบให้ความสำคัญกับการฝึกที่มีคุณภาพ คะแนนมาจากความแม่นยำ 40% ความเร็ว 25% การทำครบ 20% และพัฒนาการ 15% เพื่อให้ทุกคนมีโอกาสขยับอันดับได้จากการพัฒนาตัวเอง</p></section>
         </div>}
 
         {view === "exam" && <div className="exam-page">
           <header className="exam-header"><div><button className="back-link" onClick={() => { setRunning(false); setView("dashboard"); }}>← กลับภาพรวม</button><h1>คณิตศาสตร์ · ชุดฝึกจับเวลา 05</h1></div><div className="exam-metrics"><div><small>เวลาที่ทำจริง</small><b><i className={running ? "live-dot" : "live-dot paused"}/>{formatTime(seconds)}</b></div><div><small>ความคืบหน้า</small><b>{answeredCount}/{questions.length} ข้อ</b></div><button className="secondary" onClick={() => { setRunning(false); setResumeOpen(true); }}>พักข้อสอบ</button></div></header>
           <div className="exam-body"><aside className="question-nav"><div><h2>รายการข้อ</h2><span>{remaining} ข้อยังไม่ตอบ</span></div><div className="question-grid">{questions.map((_, i) => { const state = i === current ? "current" : answers[i] !== undefined ? "answered" : states[i] === "paused" ? "skipped" : "empty"; return <button key={i} className={state} onClick={() => goTo(i)} aria-label={`ไปข้อ ${i + 1}`}>{i + 1}</button>; })}</div><div className="question-legend"><span><i className="answered"/>ตอบแล้ว</span><span><i className="skipped"/>ข้ามไว้</span><span><i className="current"/>ข้อปัจจุบัน</span></div></aside>
-            <section className="question-stage"><div className="question-status"><span>ข้อ {current + 1} จาก {questions.length}</span><span>{answers[current] !== undefined ? "ตอบแล้ว" : states[current] === "paused" ? "ข้ามไว้" : "กำลังทำ"}</span><span className={`save-state ${saved ? "show" : ""}`}>✓ บันทึกแล้ว</span></div><article className="question-card"><small>พีชคณิต · ระดับพื้นฐาน</small><h2>{questions[current].q}</h2><p>เลือกคำตอบที่ถูกต้องที่สุดเพียงข้อเดียว</p><div className="choices">{questions[current].choices.map((choice, i) => <button key={choice} className={answers[current] === i ? "selected" : ""} onClick={() => choose(i)}><span>{String.fromCharCode(65 + i)}</span><b>{choice}</b><i>{answers[current] === i ? "✓" : ""}</i></button>)}</div></article><div className="exam-footer"><button className="secondary" disabled={current === 0} onClick={() => goTo(current - 1)}>ย้อนกลับ</button><button className="skip" onClick={() => { setStates((p) => ({ ...p, [current]: "paused" })); if (current < questions.length - 1) goTo(current + 1); }}>ข้ามข้อนี้</button>{current < questions.length - 1 ? <button className="primary" onClick={() => goTo(current + 1)}>ข้อถัดไป →</button> : <button className="primary" onClick={() => setSubmitOpen(true)}>ส่งข้อสอบ</button>}</div></section>
+            <section className="question-stage"><div className="question-status"><span>ข้อ {current + 1} จาก {questions.length}</span><span>{answers[current] !== undefined ? "ตอบแล้ว" : states[current] === "paused" ? "ข้ามไว้" : "กำลังทำ"}</span><span className={`save-state ${saved ? "show" : ""}`}>✓ บันทึกแล้ว</span></div><article className="question-card"><small>พีชคณิต · ระดับพื้นฐาน</small><h2>{questions[current].q}</h2><p>เลือกคำตอบที่ถูกต้องที่สุดเพียงข้อเดียว</p><div className="choices">{questions[current].choices.map((choice, i) => <button key={choice} className={answers[current] === i ? "selected" : ""} onClick={() => choose(i)}><span>{String.fromCharCode(65 + i)}</span><b>{choice}</b><i>{answers[current] === i ? "✓" : ""}</i></button>)}</div></article>{backendMessage && <p className="system-note" role="status">{backendMessage}</p>}<div className="exam-footer"><button className="secondary" disabled={current === 0} onClick={() => goTo(current - 1)}>ย้อนกลับ</button><button className="skip" onClick={() => { setStates((p) => ({ ...p, [current]: "paused" })); if (current < questions.length - 1) goTo(current + 1); }}>ข้ามข้อนี้</button>{current < questions.length - 1 ? <button className="primary" onClick={() => goTo(current + 1)}>ข้อถัดไป →</button> : <button className="primary" disabled={submitting} onClick={() => void handleSubmit()}>{submitting ? "กำลังตรวจคะแนน…" : "ส่งข้อสอบ"}</button>}</div></section>
           </div>
         </div>}
 
@@ -190,6 +261,7 @@ export default function Home() {
 
       {resumeOpen && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="resume-title"><div className="modal"><span className="modal-icon">Ⅱ</span><h2 id="resume-title">พักการทำข้อสอบแล้ว</h2><p>คำตอบและเวลาที่ทำจริง <b>{formatTime(seconds)}</b> ถูกบันทึกไว้ เวลาระหว่างพักจะไม่ถูกนำมานับ</p><div className="resume-summary"><span><small>ชุดข้อสอบ</small><b>คณิตศาสตร์ 05</b></span><span><small>ความคืบหน้า</small><b>{answeredCount}/{questions.length} ข้อ</b></span></div><button className="primary full" onClick={() => { setResumeOpen(false); setView("exam"); setRunning(true); }}>ทำข้อสอบต่อ</button><button className="danger-link" onClick={() => { localStorage.removeItem("skillquest-attempt"); setResumeOpen(false); setView("dashboard"); }}>ยกเลิกชุดนี้</button></div></div>}
       {submitOpen && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="submit-title"><div className="modal"><span className="modal-icon warning">!</span><h2 id="submit-title">ยังเหลือ {remaining} ข้อ</h2><p>ตรวจคำตอบให้ครบก่อนส่ง เพื่อให้ระบบวิเคราะห์ผลได้แม่นยำ</p><div className="missing-list">{questions.map((_, i) => answers[i] === undefined && <button key={i} onClick={() => { setSubmitOpen(false); goTo(i); }}>ข้อ {i + 1}</button>)}</div><button className="primary full" onClick={() => { setSubmitOpen(false); const n = questions.findIndex((_, i) => answers[i] === undefined); if (n >= 0) goTo(n); }}>ไปข้อที่ยังไม่ตอบ</button><button className="danger-link neutral" onClick={() => setSubmitOpen(false)}>กลับไปตรวจคำตอบ</button></div></div>}
+      {result && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="result-title"><div className="modal"><span className="modal-icon result">✓</span><h2 id="result-title">ตรวจคะแนนเรียบร้อย</h2><p>คุณตอบถูก <b>{result.correct_count} จาก {result.total_questions} ข้อ</b> ความแม่นยำ {Math.round(Number(result.accuracy))}%</p><div className="resume-summary"><span><small>คะแนนอันดับ</small><b>+{result.ranking_points}</b></span><span><small>สถานะ</small><b>{result.ranked ? "นับอันดับแล้ว" : "ชุดฝึกเพิ่มเติม"}</b></span></div><button className="primary full" onClick={() => { setResult(null); setView("dashboard"); }}>กลับไปดูพัฒนาการ</button></div></div>}
     </main>
   );
 }
