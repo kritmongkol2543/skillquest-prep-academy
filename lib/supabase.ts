@@ -20,7 +20,7 @@ export type RemoteAttempt = {
   elapsed_seconds: number;
   ranked: boolean;
   submitted_at: string;
-  question_sets: { title: string; subject: string } | null;
+  Test: { Question: string; Subject: string } | null;
 };
 
 export type LeaderboardEntry = {
@@ -39,57 +39,105 @@ export type AttemptResult = {
   correct_count: number;
   total_questions: number;
   accuracy: number;
+  score: number;
+  hint_count: number;
+  hint_penalty: number;
   ranking_points: number;
   ranked: boolean;
   duplicate: boolean;
 };
 
+export type QuestionLogEvent = "enter" | "heartbeat" | "answer" | "pause" | "skip" | "submit" | "hint";
+export type QuestionLogStatus = "viewed" | "answered" | "changed_answer" | "skipped" | "paused" | "submitted";
+
+export type HintResult = {
+  hint_id: string;
+  hint_text: string;
+  hint_type: string;
+  eliminated_choices: number[];
+  point_penalty: number;
+  hints_used: number;
+  hints_remaining: number;
+  total_penalty: number;
+};
+
 export async function ensureAnonymousSession(displayName: string) {
-  let { data: { session }, error } = await supabase.auth.getSession();
+  const { data, error } = await supabase.auth.getSession();
   if (error) throw error;
+  let { session } = data;
   if (!session) {
     const signedIn = await supabase.auth.signInAnonymously();
     if (signedIn.error) throw signedIn.error;
     session = signedIn.data.session;
   }
   if (!session?.user) throw new Error("SESSION_UNAVAILABLE");
-
-  const cleanName = displayName.trim().slice(0, 24) || "ผู้เตรียมสอบ";
-  const profile = await supabase.from("profiles").upsert(
-    { user_id: session.user.id, display_name: cleanName, updated_at: new Date().toISOString() },
-    { onConflict: "user_id" },
-  );
-  if (profile.error) throw profile.error;
+  localStorage.setItem("skillquest-name", displayName.trim().slice(0, 24) || "ผู้เตรียมสอบ");
   return session.user;
 }
 
-export async function saveRemoteProfile(displayName: string) {
-  const { data: { user }, error: userError } = await supabase.auth.getUser();
-  if (userError || !user) throw userError ?? new Error("AUTH_REQUIRED");
-  const { error } = await supabase.from("profiles").upsert(
-    { user_id: user.id, display_name: displayName.trim().slice(0, 24), updated_at: new Date().toISOString() },
-    { onConflict: "user_id" },
-  );
+async function getSessionHeaders() {
+  const { data: { session }, error } = await supabase.auth.getSession();
   if (error) throw error;
+  if (!session?.access_token) throw new Error("AUTH_REQUIRED");
+
+  return {
+    Authorization: `Bearer ${session.access_token}`,
+    apikey: supabasePublishableKey,
+  };
+}
+
+export async function saveRemoteProfile(displayName: string) {
+  await ensureAnonymousSession(displayName);
 }
 
 export async function loadRemoteAttempts() {
-  const { data, error } = await supabase
-    .from("attempts")
-    .select("id,accuracy,correct_count,total_questions,elapsed_seconds,ranked,submitted_at,question_sets(title,subject)")
-    .order("submitted_at", { ascending: false })
-    .limit(20);
-  if (error) throw error;
-  return (data ?? []) as unknown as RemoteAttempt[];
+  // The ER-aligned backend stores per-question analysis in "Log" instead of
+  // exposing old attempt/question_set tables directly to the browser.
+  // Dashboard examples remain local until a dedicated history RPC is added.
+  return [] as RemoteAttempt[];
 }
 
 export async function loadLeaderboard() {
   const { data, error } = await supabase.functions.invoke("skillquest-api", {
+    headers: await getSessionHeaders(),
     body: { action: "leaderboard", limit: 20 },
   });
   if (error) throw error;
   if (data?.error) throw new Error(data.error);
   return (data?.data ?? []) as LeaderboardEntry[];
+}
+
+export async function logQuestionActivity(payload: {
+  set_id: string;
+  question_id: string;
+  client_nonce: string;
+  event_type: QuestionLogEvent;
+  duration_seconds: number;
+  selected_choice?: number | null;
+  status: QuestionLogStatus;
+}) {
+  const { data, error } = await supabase.functions.invoke("skillquest-api", {
+    headers: await getSessionHeaders(),
+    body: { action: "log_question", payload },
+  });
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+  return data?.data as { log_id: string; duration_seconds: number; view_count: number; status: string };
+}
+
+export async function requestRemoteHint(payload: {
+  set_id: string;
+  question_id: string;
+  client_nonce: string;
+  duration_seconds: number;
+}) {
+  const { data, error } = await supabase.functions.invoke("skillquest-api", {
+    headers: await getSessionHeaders(),
+    body: { action: "use_hint", payload },
+  });
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+  return data.data as HintResult;
 }
 
 export async function submitRemoteAttempt(payload: {
@@ -99,6 +147,7 @@ export async function submitRemoteAttempt(payload: {
   client_nonce: string;
 }) {
   const { data, error } = await supabase.functions.invoke("skillquest-api", {
+    headers: await getSessionHeaders(),
     body: { action: "submit_attempt", payload },
   });
   if (error) throw error;

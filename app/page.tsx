@@ -1,14 +1,19 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ensureAnonymousSession,
+  logQuestionActivity,
   loadLeaderboard,
   loadRemoteAttempts,
+  requestRemoteHint,
   saveRemoteProfile,
   submitRemoteAttempt,
   type AttemptResult,
+  type HintResult,
   type LeaderboardEntry,
+  type QuestionLogEvent,
+  type QuestionLogStatus,
   type RemoteAttempt,
 } from "@/lib/supabase";
 
@@ -37,6 +42,46 @@ const questions = [
   { id: "20000000-0000-4000-8000-000000000010", q: "15% ของ 200 เท่ากับเท่าใด?", choices: ["15", "20", "30", "45"] },
 ];
 
+const defaultAnswers: Record<number, number> = { 0: 1, 1: 2, 3: 2 };
+const defaultStates: Record<number, QuestionState> = { 0: "answered", 1: "answered", 2: "paused", 3: "answered", 4: "viewed" };
+
+type SavedAttempt = {
+  answers?: Record<number, number>;
+  states?: Record<number, QuestionState>;
+  current?: number;
+  seconds?: number;
+  questionSeconds?: Record<number, number>;
+  hints?: Record<number, HintResult[]>;
+  status?: "in_progress" | "paused";
+};
+
+let cachedSavedAttempt: SavedAttempt | null | undefined;
+
+function readSavedAttempt() {
+  if (cachedSavedAttempt !== undefined) return cachedSavedAttempt;
+  if (typeof window === "undefined") {
+    cachedSavedAttempt = null;
+    return cachedSavedAttempt;
+  }
+  try {
+    const raw = localStorage.getItem("skillquest-attempt");
+    cachedSavedAttempt = raw ? JSON.parse(raw) as SavedAttempt : null;
+  } catch {
+    cachedSavedAttempt = null;
+  }
+  return cachedSavedAttempt;
+}
+
+function readInitialName() {
+  if (typeof window === "undefined") return "Boss";
+  return localStorage.getItem("skillquest-name") ?? "Boss";
+}
+
+function readInitialNonce() {
+  if (typeof window === "undefined") return "";
+  return localStorage.getItem("skillquest-attempt-nonce") ?? crypto.randomUUID();
+}
+
 const history = [
   { date: "10 ก.ค.", subject: "คณิตศาสตร์", set: "Math Challenge 04", score: "42/50", accuracy: "84%", time: "28:16", status: "สำเร็จ" },
   { date: "8 ก.ค.", subject: "ภาษาอังกฤษ", set: "English Sprint 08", score: "46/50", accuracy: "92%", time: "21:44", status: "สำเร็จ" },
@@ -64,47 +109,46 @@ function Glyph({ children }: { children: React.ReactNode }) {
 
 export default function Home() {
   const [view, setView] = useState<View>("dashboard");
-  const [name, setName] = useState("Boss");
+  const [name, setName] = useState(readInitialName);
   const [editingName, setEditingName] = useState(false);
-  const [current, setCurrent] = useState(0);
-  const [answers, setAnswers] = useState<Record<number, number>>({ 0: 1, 1: 2, 3: 2 });
-  const [states, setStates] = useState<Record<number, QuestionState>>({ 0: "answered", 1: "answered", 2: "paused", 3: "answered", 4: "viewed" });
-  const [seconds, setSeconds] = useState(847);
+  const [current, setCurrent] = useState(() => readSavedAttempt()?.current ?? 0);
+  const [answers, setAnswers] = useState<Record<number, number>>(() => readSavedAttempt()?.answers ?? defaultAnswers);
+  const [states, setStates] = useState<Record<number, QuestionState>>(() => readSavedAttempt()?.states ?? defaultStates);
+  const [seconds, setSeconds] = useState(() => readSavedAttempt()?.seconds ?? 847);
   const [running, setRunning] = useState(false);
-  const [resumeOpen, setResumeOpen] = useState(false);
+  const [resumeOpen, setResumeOpen] = useState(() => readSavedAttempt()?.status === "paused");
   const [submitOpen, setSubmitOpen] = useState(false);
   const [range, setRange] = useState("30 วัน");
   const [saved, setSaved] = useState(false);
-  const [clientNonce, setClientNonce] = useState("");
+  const [clientNonce, setClientNonce] = useState(readInitialNonce);
   const [backendStatus, setBackendStatus] = useState<"connecting" | "online" | "offline">("connecting");
   const [backendMessage, setBackendMessage] = useState("");
   const [remoteAttempts, setRemoteAttempts] = useState<RemoteAttempt[]>([]);
   const [remoteLeaders, setRemoteLeaders] = useState<LeaderboardEntry[]>([]);
   const [result, setResult] = useState<AttemptResult | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [questionSeconds, setQuestionSeconds] = useState<Record<number, number>>(() => readSavedAttempt()?.questionSeconds ?? {});
+  const [hints, setHints] = useState<Record<number, HintResult[]>>(() => readSavedAttempt()?.hints ?? {});
+  const [hinting, setHinting] = useState(false);
+  const currentRef = useRef(current);
+  const answersRef = useRef(answers);
+  const statesRef = useRef(states);
+  const questionSecondsRef = useRef(questionSeconds);
+  const initialNameRef = useRef(name);
 
   const answeredCount = Object.keys(answers).length;
   const remaining = questions.length - answeredCount;
   const initials = name.trim().slice(0, 1).toUpperCase() || "ผ";
+  const currentQuestionSeconds = questionSeconds[current] ?? 0;
+  const totalHintsUsed = Object.values(hints).reduce((sum, item) => sum + item.length, 0);
+  const hintPenalty = totalHintsUsed * 0.5;
+  const currentHints = hints[current] ?? [];
+  const eliminatedChoices = new Set(currentHints.flatMap((hint) => hint.eliminated_choices ?? []));
 
   useEffect(() => {
-    const savedName = localStorage.getItem("skillquest-name");
-    if (savedName) setName(savedName);
-    const nextNonce = localStorage.getItem("skillquest-attempt-nonce") ?? crypto.randomUUID();
-    localStorage.setItem("skillquest-attempt-nonce", nextNonce);
-    setClientNonce(nextNonce);
-    const raw = localStorage.getItem("skillquest-attempt");
-    if (raw) try {
-      const data = JSON.parse(raw);
-      setAnswers(data.answers ?? {}); setStates(data.states ?? {});
-      setCurrent(data.current ?? 0); setSeconds(data.seconds ?? 0);
-      setResumeOpen(data.status === "paused");
-    } catch { /* Keep the safe defaults. */ }
-
-    const initialName = savedName ?? "Boss";
     void (async () => {
       try {
-        await ensureAnonymousSession(initialName);
+        await ensureAnonymousSession(initialNameRef.current);
         const [attemptRows, leaderRows] = await Promise.all([loadRemoteAttempts(), loadLeaderboard()]);
         setRemoteAttempts(attemptRows); setRemoteLeaders(leaderRows);
         setBackendStatus("online");
@@ -118,40 +162,120 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (!running) return;
-    const timer = window.setInterval(() => setSeconds((s) => s + 1), 1000);
-    return () => window.clearInterval(timer);
-  }, [running]);
+    currentRef.current = current;
+    answersRef.current = answers;
+    statesRef.current = states;
+    questionSecondsRef.current = questionSeconds;
+  }, [answers, current, questionSeconds, states]);
 
   useEffect(() => {
-    localStorage.setItem("skillquest-attempt", JSON.stringify({ answers, states, current, seconds, status: running ? "in_progress" : "paused" }));
-    setSaved(true);
-    const timer = window.setTimeout(() => setSaved(false), 900);
-    return () => window.clearTimeout(timer);
-  }, [answers, states, current, seconds, running]);
+    if (!running) return;
+    const timer = window.setInterval(() => {
+      setSeconds((s) => s + 1);
+      setQuestionSeconds((items) => ({ ...items, [current]: (items[current] ?? 0) + 1 }));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [current, running]);
+
+  useEffect(() => {
+    if (!running || backendStatus !== "online" || !clientNonce) return;
+    const heartbeat = window.setInterval(() => {
+      void syncQuestionLog(currentRef.current, "heartbeat");
+    }, 8000);
+    return () => window.clearInterval(heartbeat);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [backendStatus, clientNonce, running]);
+
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === "hidden") void syncQuestionLog(currentRef.current, "pause", "paused");
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (clientNonce) localStorage.setItem("skillquest-attempt-nonce", clientNonce);
+    localStorage.setItem("skillquest-attempt", JSON.stringify({ answers, states, current, seconds, questionSeconds, hints, status: running ? "in_progress" : "paused" }));
+    const showTimer = window.setTimeout(() => setSaved(true), 0);
+    const hideTimer = window.setTimeout(() => setSaved(false), 900);
+    return () => {
+      window.clearTimeout(showTimer);
+      window.clearTimeout(hideTimer);
+    };
+  }, [answers, states, current, seconds, questionSeconds, hints, running, clientNonce]);
 
   const chartPoints = useMemo(() => range === "30 วัน" ? "0,86 48,67 96,72 144,38 192,52 240,24 288,35 336,12" : "0,78 48,72 96,50 144,63 192,34 240,44 288,18 336,26", [range]);
   const averageAccuracy = remoteAttempts.length ? Math.round(remoteAttempts.reduce((sum, item) => sum + Number(item.accuracy), 0) / remoteAttempts.length) : 82;
   const totalSeconds = remoteAttempts.reduce((sum, item) => sum + item.elapsed_seconds, 0);
   const remoteHistory = remoteAttempts.map((item) => ({
     date: new Intl.DateTimeFormat("th-TH", { day: "numeric", month: "short" }).format(new Date(item.submitted_at)),
-    subject: item.question_sets?.subject ?? "แบบทดสอบ",
-    set: item.question_sets?.title ?? "ชุดฝึก",
+    subject: item.Test?.Subject ?? "แบบทดสอบ",
+    set: item.Test?.Question ?? "ชุดฝึก",
     score: `${item.correct_count}/${item.total_questions}`,
     accuracy: `${Math.round(Number(item.accuracy))}%`,
     time: formatTime(item.elapsed_seconds).slice(3),
     status: "สำเร็จ",
   }));
 
-  function openExam() { setView("exam"); setRunning(true); }
+  function statusFor(index: number): QuestionLogStatus {
+    if (answersRef.current[index] !== undefined) return statesRef.current[index] === "changed_answer" ? "changed_answer" : "answered";
+    if (statesRef.current[index] === "paused") return "skipped";
+    return "viewed";
+  }
+
+  async function syncQuestionLog(index: number, eventType: QuestionLogEvent, status?: QuestionLogStatus, quiet = true) {
+    if (backendStatus !== "online" || !clientNonce) return;
+    try {
+      await logQuestionActivity({
+        set_id: SET_ID,
+        question_id: questions[index].id,
+        client_nonce: clientNonce,
+        event_type: eventType,
+        duration_seconds: questionSecondsRef.current[index] ?? 0,
+        selected_choice: answersRef.current[index] ?? null,
+        status: status ?? statusFor(index),
+      });
+    } catch {
+      if (!quiet) setBackendMessage("บันทึก Log รายข้อยังไม่สำเร็จ ระบบจะลองใหม่เมื่อมีการทำรายการถัดไป");
+    }
+  }
+
+  async function syncAllQuestionLogs(eventType: QuestionLogEvent) {
+    if (backendStatus !== "online" || !clientNonce) return;
+    await Promise.all(questions.map((_, index) => syncQuestionLog(index, eventType, index === currentRef.current ? "submitted" : statusFor(index))));
+  }
+
+  function openExam() {
+    setView("exam");
+    setRunning(true);
+    void syncQuestionLog(current, "enter", statusFor(current));
+  }
   function goTo(index: number) {
+    void syncQuestionLog(current, answers[current] !== undefined ? "answer" : "skip");
     setStates((prev) => ({ ...prev, [current]: answers[current] !== undefined ? "reviewed" : "paused", [index]: answers[index] !== undefined ? "reviewed" : "viewed" }));
     setCurrent(index);
+    window.setTimeout(() => void syncQuestionLog(index, "enter", statusFor(index)), 0);
   }
   function choose(choice: number) {
     const changed = answers[current] !== undefined && answers[current] !== choice;
     setAnswers((prev) => ({ ...prev, [current]: choice }));
     setStates((prev) => ({ ...prev, [current]: changed ? "changed_answer" : "answered" }));
+    window.setTimeout(() => void syncQuestionLog(current, "answer", changed ? "changed_answer" : "answered"), 0);
+  }
+  function resetAttemptState(clearResult = true) {
+    const nextNonce = crypto.randomUUID();
+    localStorage.removeItem("skillquest-attempt");
+    localStorage.setItem("skillquest-attempt-nonce", nextNonce);
+    setClientNonce(nextNonce);
+    setAnswers({});
+    setStates({});
+    setCurrent(0);
+    setSeconds(0);
+    setQuestionSeconds({});
+    setHints({});
+    if (clearResult) setResult(null);
   }
   async function saveName() {
     const clean = name.trim() || "ผู้เตรียมสอบ";
@@ -159,6 +283,38 @@ export default function Home() {
     if (backendStatus === "online") {
       try { await saveRemoteProfile(clean); setRemoteLeaders(await loadLeaderboard()); }
       catch { setBackendMessage("บันทึกชื่อในเครื่องแล้ว และจะซิงก์ใหม่ภายหลัง"); }
+    }
+  }
+  async function handleHint() {
+    if (backendStatus !== "online" || !clientNonce) {
+      setBackendMessage("Hint ต้องเชื่อมต่อฐานข้อมูลก่อน เพื่อจำกัดสิทธิ์ 2 ครั้งต่อชุดข้อสอบ");
+      return;
+    }
+    if (totalHintsUsed >= 2) {
+      setBackendMessage("ใช้ Hint ครบ 2 ครั้งสำหรับชุดนี้แล้ว");
+      return;
+    }
+    if (currentHints.length > 0) {
+      setBackendMessage("ข้อนี้ใช้ Hint ไปแล้ว ระบบตัดตัวเลือกผิดให้แล้ว");
+      return;
+    }
+    setHinting(true);
+    try {
+      await syncQuestionLog(current, "hint", statusFor(current));
+      const hint = await requestRemoteHint({
+        set_id: SET_ID,
+        question_id: questions[current].id,
+        client_nonce: clientNonce,
+        duration_seconds: questionSecondsRef.current[current] ?? 0,
+      });
+      setHints((prev) => ({ ...prev, [current]: [...(prev[current] ?? []), hint] }));
+      setBackendMessage("");
+    } catch (error) {
+      setBackendMessage(error instanceof Error && error.message === "HINT_LIMIT_REACHED"
+        ? "ใช้ Hint ครบ 2 ครั้งสำหรับชุดนี้แล้ว"
+        : "ขอ Hint ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง");
+    } finally {
+      setHinting(false);
     }
   }
   async function handleSubmit() {
@@ -169,13 +325,13 @@ export default function Home() {
     }
     setSubmitting(true); setRunning(false);
     try {
+      await syncAllQuestionLogs("submit");
       const keyedAnswers = Object.fromEntries(Object.entries(answers).map(([index, choice]) => [questions[Number(index)].id, choice]));
       const submitted = await submitRemoteAttempt({ set_id: SET_ID, answers: keyedAnswers, elapsed_seconds: Math.max(30, seconds), client_nonce: clientNonce });
       setResult(submitted);
       const [attemptRows, leaderRows] = await Promise.all([loadRemoteAttempts(), loadLeaderboard()]);
       setRemoteAttempts(attemptRows); setRemoteLeaders(leaderRows);
-      localStorage.removeItem("skillquest-attempt");
-      localStorage.removeItem("skillquest-attempt-nonce");
+      resetAttemptState(false);
     } catch (error) {
       setRunning(true);
       setBackendMessage(error instanceof Error && error.message === "RATE_LIMITED" ? "ส่งข้อสอบถี่เกินไป กรุณารอสักครู่" : "ส่งผลไม่สำเร็จ คำตอบยังอยู่ในเครื่องและลองใหม่ได้");
@@ -250,18 +406,18 @@ export default function Home() {
         </div>}
 
         {view === "exam" && <div className="exam-page">
-          <header className="exam-header"><div><button className="back-link" onClick={() => { setRunning(false); setView("dashboard"); }}>← กลับภาพรวม</button><h1>คณิตศาสตร์ · ชุดฝึกจับเวลา 05</h1></div><div className="exam-metrics"><div><small>เวลาที่ทำจริง</small><b><i className={running ? "live-dot" : "live-dot paused"}/>{formatTime(seconds)}</b></div><div><small>ความคืบหน้า</small><b>{answeredCount}/{questions.length} ข้อ</b></div><button className="secondary" onClick={() => { setRunning(false); setResumeOpen(true); }}>พักข้อสอบ</button></div></header>
+          <header className="exam-header"><div><button className="back-link" onClick={() => { void syncQuestionLog(current, "pause", "paused"); setRunning(false); setView("dashboard"); }}>← กลับภาพรวม</button><h1>คณิตศาสตร์ · ชุดฝึกจับเวลา 05</h1></div><div className="exam-metrics"><div><small>เวลาที่ทำจริง</small><b><i className={running ? "live-dot" : "live-dot paused"}/>{formatTime(seconds)}</b></div><div><small>ความคืบหน้า</small><b>{answeredCount}/{questions.length} ข้อ</b></div><button className="secondary" onClick={() => { void syncQuestionLog(current, "pause", "paused"); setRunning(false); setResumeOpen(true); }}>พักข้อสอบ</button></div></header>
           <div className="exam-body"><aside className="question-nav"><div><h2>รายการข้อ</h2><span>{remaining} ข้อยังไม่ตอบ</span></div><div className="question-grid">{questions.map((_, i) => { const state = i === current ? "current" : answers[i] !== undefined ? "answered" : states[i] === "paused" ? "skipped" : "empty"; return <button key={i} className={state} onClick={() => goTo(i)} aria-label={`ไปข้อ ${i + 1}`}>{i + 1}</button>; })}</div><div className="question-legend"><span><i className="answered"/>ตอบแล้ว</span><span><i className="skipped"/>ข้ามไว้</span><span><i className="current"/>ข้อปัจจุบัน</span></div></aside>
-            <section className="question-stage"><div className="question-status"><span>ข้อ {current + 1} จาก {questions.length}</span><span>{answers[current] !== undefined ? "ตอบแล้ว" : states[current] === "paused" ? "ข้ามไว้" : "กำลังทำ"}</span><span className={`save-state ${saved ? "show" : ""}`}>✓ บันทึกแล้ว</span></div><article className="question-card"><small>พีชคณิต · ระดับพื้นฐาน</small><h2>{questions[current].q}</h2><p>เลือกคำตอบที่ถูกต้องที่สุดเพียงข้อเดียว</p><div className="choices">{questions[current].choices.map((choice, i) => <button key={choice} className={answers[current] === i ? "selected" : ""} onClick={() => choose(i)}><span>{String.fromCharCode(65 + i)}</span><b>{choice}</b><i>{answers[current] === i ? "✓" : ""}</i></button>)}</div></article>{backendMessage && <p className="system-note" role="status">{backendMessage}</p>}<div className="exam-footer"><button className="secondary" disabled={current === 0} onClick={() => goTo(current - 1)}>ย้อนกลับ</button><button className="skip" onClick={() => { setStates((p) => ({ ...p, [current]: "paused" })); if (current < questions.length - 1) goTo(current + 1); }}>ข้ามข้อนี้</button>{current < questions.length - 1 ? <button className="primary" onClick={() => goTo(current + 1)}>ข้อถัดไป →</button> : <button className="primary" disabled={submitting} onClick={() => void handleSubmit()}>{submitting ? "กำลังตรวจคะแนน…" : "ส่งข้อสอบ"}</button>}</div></section>
+            <section className="question-stage"><div className="question-status"><span>ข้อ {current + 1} จาก {questions.length}</span><span>{answers[current] !== undefined ? "ตอบแล้ว" : states[current] === "paused" ? "ข้ามไว้" : "กำลังทำ"}</span><span>ข้อนี้ {formatTime(currentQuestionSeconds)}</span><span className={`save-state ${saved ? "show" : ""}`}>✓ บันทึกแล้ว</span></div><article className="question-card"><small>พีชคณิต · ระดับพื้นฐาน</small><h2>{questions[current].q}</h2><p>เลือกคำตอบที่ถูกต้องที่สุดเพียงข้อเดียว</p><div className="assist-row"><button className="hint-button" disabled={hinting || totalHintsUsed >= 2 || currentHints.length > 0 || backendStatus !== "online"} onClick={() => void handleHint()}>{hinting ? "กำลังตัดตัวเลือก…" : `Hint ${totalHintsUsed}/2`}</button><span>ตัดตัวเลือกผิด 2 ข้อ · หัก {hintPenalty.toFixed(1)} คะแนน</span></div>{currentHints.length > 0 && <div className="hint-stack" aria-live="polite">{currentHints.map((hint) => <p key={hint.hint_id}>{hint.hint_text}</p>)}</div>}<div className="choices">{questions[current].choices.map((choice, i) => { const eliminated = eliminatedChoices.has(i); return <button key={choice} disabled={eliminated} className={`${answers[current] === i ? "selected" : ""} ${eliminated ? "eliminated" : ""}`} onClick={() => choose(i)}><span>{String.fromCharCode(65 + i)}</span><b>{choice}</b><i>{eliminated ? "ตัดออก" : answers[current] === i ? "✓" : ""}</i></button>; })}</div></article>{backendMessage && <p className="system-note" role="status">{backendMessage}</p>}<div className="exam-footer"><button className="secondary" disabled={current === 0} onClick={() => goTo(current - 1)}>ย้อนกลับ</button><button className="skip" onClick={() => { void syncQuestionLog(current, "skip", "skipped"); setStates((p) => ({ ...p, [current]: "paused" })); if (current < questions.length - 1) goTo(current + 1); }}>ข้ามข้อนี้</button>{current < questions.length - 1 ? <button className="primary" onClick={() => goTo(current + 1)}>ข้อถัดไป →</button> : <button className="primary" disabled={submitting} onClick={() => void handleSubmit()}>{submitting ? "กำลังตรวจคะแนน…" : "ส่งข้อสอบ"}</button>}</div></section>
           </div>
         </div>}
 
         <nav className="mobile-nav" aria-label="เมนูบนมือถือ"><button className={view === "dashboard" ? "active" : ""} onClick={() => setView("dashboard")}><Glyph>⌂</Glyph><span>ภาพรวม</span></button><button className={view === "ranking" ? "active" : ""} onClick={() => setView("ranking")}><Glyph>≋</Glyph><span>อันดับ</span></button><button className={view === "exam" ? "active" : ""} onClick={openExam}><Glyph>✓</Glyph><span>ข้อสอบ</span></button></nav>
       </section>
 
-      {resumeOpen && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="resume-title"><div className="modal"><span className="modal-icon">Ⅱ</span><h2 id="resume-title">พักการทำข้อสอบแล้ว</h2><p>คำตอบและเวลาที่ทำจริง <b>{formatTime(seconds)}</b> ถูกบันทึกไว้ เวลาระหว่างพักจะไม่ถูกนำมานับ</p><div className="resume-summary"><span><small>ชุดข้อสอบ</small><b>คณิตศาสตร์ 05</b></span><span><small>ความคืบหน้า</small><b>{answeredCount}/{questions.length} ข้อ</b></span></div><button className="primary full" onClick={() => { setResumeOpen(false); setView("exam"); setRunning(true); }}>ทำข้อสอบต่อ</button><button className="danger-link" onClick={() => { localStorage.removeItem("skillquest-attempt"); setResumeOpen(false); setView("dashboard"); }}>ยกเลิกชุดนี้</button></div></div>}
+      {resumeOpen && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="resume-title"><div className="modal"><span className="modal-icon">Ⅱ</span><h2 id="resume-title">พักการทำข้อสอบแล้ว</h2><p>คำตอบและเวลาที่ทำจริง <b>{formatTime(seconds)}</b> ถูกบันทึกไว้ เวลาระหว่างพักจะไม่ถูกนำมานับ</p><div className="resume-summary"><span><small>ชุดข้อสอบ</small><b>คณิตศาสตร์ 05</b></span><span><small>ความคืบหน้า</small><b>{answeredCount}/{questions.length} ข้อ</b></span></div><button className="primary full" onClick={() => { setResumeOpen(false); setView("exam"); setRunning(true); void syncQuestionLog(current, "enter", statusFor(current)); }}>ทำข้อสอบต่อ</button><button className="danger-link" onClick={() => { void syncQuestionLog(current, "pause", "paused"); resetAttemptState(); setResumeOpen(false); setView("dashboard"); }}>ยกเลิกชุดนี้</button></div></div>}
       {submitOpen && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="submit-title"><div className="modal"><span className="modal-icon warning">!</span><h2 id="submit-title">ยังเหลือ {remaining} ข้อ</h2><p>ตรวจคำตอบให้ครบก่อนส่ง เพื่อให้ระบบวิเคราะห์ผลได้แม่นยำ</p><div className="missing-list">{questions.map((_, i) => answers[i] === undefined && <button key={i} onClick={() => { setSubmitOpen(false); goTo(i); }}>ข้อ {i + 1}</button>)}</div><button className="primary full" onClick={() => { setSubmitOpen(false); const n = questions.findIndex((_, i) => answers[i] === undefined); if (n >= 0) goTo(n); }}>ไปข้อที่ยังไม่ตอบ</button><button className="danger-link neutral" onClick={() => setSubmitOpen(false)}>กลับไปตรวจคำตอบ</button></div></div>}
-      {result && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="result-title"><div className="modal"><span className="modal-icon result">✓</span><h2 id="result-title">ตรวจคะแนนเรียบร้อย</h2><p>คุณตอบถูก <b>{result.correct_count} จาก {result.total_questions} ข้อ</b> ความแม่นยำ {Math.round(Number(result.accuracy))}%</p><div className="resume-summary"><span><small>คะแนนอันดับ</small><b>+{result.ranking_points}</b></span><span><small>สถานะ</small><b>{result.ranked ? "นับอันดับแล้ว" : "ชุดฝึกเพิ่มเติม"}</b></span></div><button className="primary full" onClick={() => { setResult(null); setView("dashboard"); }}>กลับไปดูพัฒนาการ</button></div></div>}
+      {result && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="result-title"><div className="modal"><span className="modal-icon result">✓</span><h2 id="result-title">ตรวจคะแนนเรียบร้อย</h2><p>คุณตอบถูก <b>{result.correct_count} จาก {result.total_questions} ข้อ</b> คะแนนหลังหัก Hint <b>{Number(result.score).toFixed(1)}</b></p><div className="resume-summary"><span><small>Hint ที่ใช้</small><b>{result.hint_count} ครั้ง (-{Number(result.hint_penalty).toFixed(1)})</b></span><span><small>คะแนนอันดับ</small><b>+{result.ranking_points}</b></span></div><button className="primary full" onClick={() => { setResult(null); setView("dashboard"); }}>กลับไปดูพัฒนาการ</button></div></div>}
     </main>
   );
 }
