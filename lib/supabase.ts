@@ -74,6 +74,56 @@ export type DashboardSummary = {
   subjects: DashboardSubjectSummary[];
 };
 
+export type LearningInsightOverview = {
+  questions_seen: number;
+  total_question_seconds: number;
+  avg_seconds_per_question: number;
+  median_seconds_per_question: number;
+  attempts_count: number;
+  average_accuracy: number;
+  hint_count: number;
+  last_activity_at: string | null;
+};
+
+export type LearningInsightSubject = {
+  subject: string;
+  questions_seen: number;
+  total_seconds: number;
+  avg_seconds: number;
+  accuracy: number;
+  wrong_count: number;
+  scored_count: number;
+};
+
+export type LearningInsightCategory = LearningInsightSubject & {
+  category: string;
+};
+
+export type LearningInsightQuestion = {
+  question_id: string;
+  question: string;
+  subject: string;
+  category: string;
+  duration_seconds: number;
+  status: string;
+  reason: string;
+};
+
+export type LearningInsightRecommendation = {
+  type: "accuracy" | "speed" | "careless";
+  title: string;
+  body: string;
+  priority: "high" | "medium" | "low";
+};
+
+export type LearningInsights = {
+  overview: LearningInsightOverview;
+  subjects: LearningInsightSubject[];
+  categories: LearningInsightCategory[];
+  slow_questions: LearningInsightQuestion[];
+  recommendations: LearningInsightRecommendation[];
+};
+
 export type LeaderboardEntry = {
   rank_position: number;
   public_id: string;
@@ -186,6 +236,16 @@ export async function loadDashboardSummary() {
   if (error) throw error;
   if (data?.error) throw new Error(data.error);
   return data?.data as DashboardSummary;
+}
+
+export async function loadLearningInsights() {
+  const { data, error } = await supabase.functions.invoke("skillquest-api", {
+    headers: await getSessionHeaders(),
+    body: { action: "learning_insights" },
+  });
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+  return data?.data as LearningInsights;
 }
 
 export async function loadLeaderboard() {

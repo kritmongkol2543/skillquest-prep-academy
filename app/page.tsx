@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ensureAnonymousSession,
   loadDashboardSummary,
+  loadLearningInsights,
   loadRemoteTest,
   logQuestionActivity,
   loadLeaderboard,
@@ -16,6 +17,7 @@ import {
   type DashboardSummary,
   type HintResult,
   type LeaderboardEntry,
+  type LearningInsights,
   type QuestionLogEvent,
   type QuestionLogStatus,
   type RemoteAttempt,
@@ -130,6 +132,19 @@ function formatTime(total: number) {
   return [h, m, s].map((v) => String(v).padStart(2, "0")).join(":");
 }
 
+function formatDurationShort(total: number) {
+  if (!total) return "—";
+  if (total < 60) return `${total} วิ`;
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return s ? `${m}น ${s}วิ` : `${m}น`;
+}
+
+function clampPercent(value: number) {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
 function Glyph({ children }: { children: React.ReactNode }) {
   return <span className="glyph" aria-hidden="true">{children}</span>;
 }
@@ -158,6 +173,7 @@ export default function Home() {
   const [loadedTestId, setLoadedTestId] = useState("");
   const [loadingQuestions, setLoadingQuestions] = useState(false);
   const [dashboardSummary, setDashboardSummary] = useState<DashboardSummary | null>(null);
+  const [learningInsights, setLearningInsights] = useState<LearningInsights | null>(null);
   const [result, setResult] = useState<AttemptResult | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [questionSeconds, setQuestionSeconds] = useState<Record<number, number>>(() => readSavedAttempt()?.questionSeconds ?? {});
@@ -250,9 +266,10 @@ export default function Home() {
     void (async () => {
       try {
         await ensureAnonymousSession(initialNameRef.current);
-        const [attemptRows, leaderRows, testRows, summary] = await Promise.all([loadRemoteAttempts(), loadLeaderboard(), loadRemoteTests(), loadDashboardSummary()]);
+        const [attemptRows, leaderRows, testRows, summary, insights] = await Promise.all([loadRemoteAttempts(), loadLeaderboard(), loadRemoteTests(), loadDashboardSummary(), loadLearningInsights()]);
         setRemoteAttempts(attemptRows); setRemoteLeaders(leaderRows);
         setDashboardSummary(summary);
+        setLearningInsights(insights);
         setTestOptions(testRows);
         const savedTestId = readSavedAttempt()?.testId;
         const nextTest = testRows.find((test) => test.test_id === savedTestId) ?? testRows[0];
@@ -341,6 +358,20 @@ export default function Home() {
     time: formatTime(item.elapsed_seconds).slice(3),
     status: "สำเร็จ",
   }));
+  const insightOverview = learningInsights?.overview;
+  const hasInsightData = Boolean(insightOverview && insightOverview.questions_seen > 0);
+  const subjectTimeRows = learningInsights?.subjects ?? [];
+  const categoryInsightRows = (learningInsights?.categories ?? []).slice(0, 8);
+  const slowQuestionRows = learningInsights?.slow_questions ?? [];
+  const insightRecommendations = learningInsights?.recommendations ?? [];
+  const maxSubjectSeconds = Math.max(1, ...subjectTimeRows.map((item) => Number(item.total_seconds) || 0));
+  const maxCategoryAvg = Math.max(1, ...categoryInsightRows.map((item) => Number(item.avg_seconds) || 0));
+  const speedTarget = 75;
+  const averageQuestionSeconds = Number(insightOverview?.avg_seconds_per_question ?? 0);
+  const medianQuestionSeconds = Number(insightOverview?.median_seconds_per_question ?? 0);
+  const insightPaceLabel = averageQuestionSeconds
+    ? averageQuestionSeconds <= speedTarget ? "อยู่ในจังหวะดี" : averageQuestionSeconds <= 120 ? "ควรเร่งจังหวะเล็กน้อย" : "ช้ากว่าเป้าหมายมาก"
+    : "รอข้อมูลจาก Log";
 
   function statusFor(index: number): QuestionLogStatus {
     if (answersRef.current[index] !== undefined) return statesRef.current[index] === "changed_answer" ? "changed_answer" : "answered";
@@ -462,8 +493,10 @@ export default function Home() {
       const keyedAnswers = Object.fromEntries(Object.entries(answers).map(([index, choice]) => [questions[Number(index)].id, choice]));
       const submitted = await submitRemoteAttempt({ set_id: activeTestId, answers: keyedAnswers, elapsed_seconds: Math.max(30, seconds), client_nonce: clientNonce });
       setResult(submitted);
-      const [attemptRows, leaderRows] = await Promise.all([loadRemoteAttempts(), loadLeaderboard()]);
+      const [attemptRows, leaderRows, summary, insights] = await Promise.all([loadRemoteAttempts(), loadLeaderboard(), loadDashboardSummary(), loadLearningInsights()]);
       setRemoteAttempts(attemptRows); setRemoteLeaders(leaderRows);
+      setDashboardSummary(summary);
+      setLearningInsights(insights);
       resetAttemptState(false);
     } catch (error) {
       setRunning(true);
@@ -534,6 +567,66 @@ export default function Home() {
             <article><span>เวลาฝึกที่ซิงก์แล้ว</span><b>{totalSeconds ? `${(totalSeconds / 3600).toFixed(1)} ชม.` : "—"}</b><small>เวลาพักไม่นำมาคำนวณ</small></article>
             <article><span>ทำข้อสอบแล้ว</span><b>{syncedAttemptsCount || (backendStatus === "online" ? 0 : 24)} ชุด</b><small>{backendStatus === "online" ? "สรุปจาก Log และผลส่งสำเร็จ" : "กำลังใช้ข้อมูลตัวอย่าง"}</small></article>
             <article><span>อันดับปัจจุบัน</span><b>{remoteLeaders.length ? `#${Math.max(1, remoteLeaders.findIndex((item) => item.display_name === name) + 1)}` : "#3"}</b><small className="positive">อันดับจากผลที่ผ่านการตรวจคะแนน</small></article>
+          </section>
+
+          <section className="insight-board" aria-label="แดชบอร์ดวิเคราะห์การฝึก">
+            <article className="panel insight-hero">
+              <div className="section-heading"><div><h2>Training Insight</h2><p>วิเคราะห์จาก Log รายข้อ ไม่ดึงข้อสอบทั้งหมดขึ้นหน้าเว็บ</p></div><span className={`insight-state ${hasInsightData ? "ready" : ""}`}>{hasInsightData ? "พร้อมวิเคราะห์" : "รอข้อมูล"}</span></div>
+              <div className="insight-metrics">
+                <div><span>เฉลี่ยต่อข้อ</span><b>{formatDurationShort(averageQuestionSeconds)}</b><small>{insightPaceLabel}</small></div>
+                <div><span>มัธยฐานต่อข้อ</span><b>{formatDurationShort(medianQuestionSeconds)}</b><small>กันข้อที่นานผิดปกติ</small></div>
+                <div><span>ข้อที่มี Log</span><b>{Number(insightOverview?.questions_seen ?? 0).toLocaleString()}</b><small>นับเฉพาะข้อที่เคยเปิดทำ</small></div>
+                <div><span>Hint ที่ใช้</span><b>{Number(insightOverview?.hint_count ?? 0)}</b><small>ช่วยดูการพึ่งตัวช่วย</small></div>
+              </div>
+              {!hasInsightData && <div className="insight-empty"><b>ยังไม่มี Insight รายข้อ</b><span>เริ่มทำข้อสอบและกดส่งผล ระบบจะสะสมเวลาแต่ละข้อ หมวดที่ช้า และข้อที่ควรทบทวนให้อัตโนมัติ</span></div>}
+              {hasInsightData && <div className="coach-list">
+                {(insightRecommendations.length ? insightRecommendations : [{ title: "ภาพรวมยังปกติ", body: "ยังไม่พบหมวดที่เสี่ยงเด่นชัด ให้ทำเพิ่มอีก 1–2 ชุดเพื่อให้โมเดล insight แม่นขึ้น", priority: "low", type: "speed" }]).map((item) => <div className={`coach-item ${item.priority}`} key={`${item.type}-${item.title}`}><span>{item.priority === "high" ? "!" : "i"}</span><div><b>{item.title}</b><small>{item.body}</small></div></div>)}
+              </div>}
+            </article>
+
+            <article className="panel subject-time-card">
+              <div className="section-heading"><div><h2>เวลาตามวิชา</h2><p>รวมเวลาจริงจากข้อที่ Active</p></div></div>
+              <div className="time-list">
+                {(subjectTimeRows.length ? subjectTimeRows : subjectMastery.map((item) => ({ subject: item.name, total_seconds: 0, avg_seconds: 0, accuracy: item.mastery, questions_seen: 0, wrong_count: 0, scored_count: 0 }))).map((item) => <div className="time-row" key={item.subject}>
+                  <div><b>{item.subject}</b><small>{item.questions_seen} ข้อ · เฉลี่ย {formatDurationShort(Number(item.avg_seconds))}</small></div>
+                  <div className="time-track"><i style={{ width: `${Math.max(6, (Number(item.total_seconds) / maxSubjectSeconds) * 100)}%` }} /></div>
+                  <strong>{formatDurationShort(Number(item.total_seconds))}</strong>
+                </div>)}
+              </div>
+            </article>
+          </section>
+
+          <section className="insight-grid">
+            <article className="panel category-diagnosis">
+              <div className="section-heading"><div><h2>วิเคราะห์ตามหมวด / ชุด</h2><p>จัดลำดับจากข้อผิด เวลาเฉลี่ย และเวลารวม</p></div></div>
+              <div className="diagnosis-table">
+                <div className="diagnosis-head"><span>หมวด</span><span>ความแม่น</span><span>เฉลี่ย/ข้อ</span><span>จุดสังเกต</span></div>
+                {(categoryInsightRows.length ? categoryInsightRows : []).map((item) => {
+                  const accuracy = clampPercent(Number(item.accuracy));
+                  const avg = Number(item.avg_seconds) || 0;
+                  const note = item.wrong_count > 0 ? `ผิด ${item.wrong_count} ข้อ` : avg > speedTarget ? "ช้ากว่าเป้า" : "จังหวะดี";
+                  return <div className="diagnosis-row" key={`${item.subject}-${item.category}`}>
+                    <span><b>{item.subject}</b><small>ชุดที่ {item.category} · {item.questions_seen} ข้อ</small></span>
+                    <span>{item.scored_count ? `${accuracy}%` : "—"}</span>
+                    <span>{formatDurationShort(avg)}</span>
+                    <span className={item.wrong_count > 0 || avg > speedTarget ? "warn" : "ok"}>{note}</span>
+                    <i style={{ width: `${Math.max(8, (avg / maxCategoryAvg) * 100)}%` }} />
+                  </div>;
+                })}
+                {!categoryInsightRows.length && <div className="table-empty">ยังไม่มีหมวดที่วิเคราะห์ได้ ลองทำข้อสอบให้จบอย่างน้อย 1 ชุด</div>}
+              </div>
+            </article>
+
+            <article className="panel slow-question-card">
+              <div className="section-heading"><div><h2>ข้อที่ควรกลับไปดู</h2><p>เรียงจากเวลานานและความเสี่ยงตอบผิด</p></div></div>
+              <div className="watch-list">
+                {slowQuestionRows.slice(0, 5).map((item, index) => <div className="watch-item" key={item.question_id}>
+                  <span>{index + 1}</span>
+                  <div><b>{item.subject} · ชุดที่ {item.category}</b><p>{item.question}</p><small>{formatDurationShort(Number(item.duration_seconds))} · {item.reason}</small></div>
+                </div>)}
+                {!slowQuestionRows.length && <div className="table-empty">ยังไม่มีข้อที่ใช้เวลานาน ระบบจะเริ่มจัด watchlist หลังมี Log รายข้อ</div>}
+              </div>
+            </article>
           </section>
 
           <section className="dashboard-grid">

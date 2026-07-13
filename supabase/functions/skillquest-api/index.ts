@@ -108,6 +108,14 @@ Deno.serve(async (request: Request) => {
     return json(origin, { data });
   }
 
+  if (body.action === "learning_insights") {
+    const { data, error } = await admin.rpc("get_learning_insights_service", {
+      p_user_id: authData.user.id,
+    });
+    if (error) return json(origin, { error: "INSIGHTS_UNAVAILABLE" }, 503);
+    return json(origin, { data });
+  }
+
   if (body.action === "log_question") {
     const payload = body.payload as Record<string, unknown> | undefined;
     if (!payload || typeof payload !== "object") return json(origin, { error: "INVALID_LOG" }, 400);
