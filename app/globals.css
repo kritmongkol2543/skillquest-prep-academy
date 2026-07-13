@@ -260,6 +260,7 @@ h1, h2, p { text-wrap: pretty; }
 .choices button:hover { border-color: #7d91a4; background: #fafbfb; }
 .choices button > span { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 8px; background: #edf0f2; color: var(--navy); font-weight: 700; }
 .choices button b { font-size: 14px; }
+.choice-image { display: block; max-width: min(100%, 520px); max-height: 260px; object-fit: contain; margin-top: 8px; border-radius: 8px; border: 1px solid var(--line); background: #fff; }
 .choices button i { font-style: normal; color: var(--green); text-align: center; }
 .choices button.selected { border-color: var(--green); background: #f0f6f3; }
 .choices button.selected > span { background: var(--green); color: #fff; }

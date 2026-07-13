@@ -31,6 +31,8 @@ type ExamQuestion = {
   id: string;
   q: string;
   choices: string[];
+  choiceImageIds: (string | null)[];
+  choiceImages: (string | null)[];
   subject: string;
   category: string;
   level: string;
@@ -58,16 +60,16 @@ const fallbackTest: RemoteTest = {
   question_count: 10,
 };
 const fallbackQuestions: ExamQuestion[] = [
-  { id: "20000000-0000-4000-8000-000000000001", q: "ถ้า 3x + 7 = 22 แล้ว x มีค่าเท่าใด?", choices: ["3", "5", "7", "9"], subject: "คณิตศาสตร์", category: "พีชคณิต", level: "ระดับพื้นฐาน", image: null },
-  { id: "20000000-0000-4000-8000-000000000002", q: "จำนวนใดเป็นจำนวนเฉพาะ?", choices: ["21", "27", "29", "33"], subject: "คณิตศาสตร์", category: "จำนวน", level: "ระดับพื้นฐาน", image: null },
-  { id: "20000000-0000-4000-8000-000000000003", q: "พื้นที่ของสี่เหลี่ยมจัตุรัสด้านยาว 8 ซม. เท่ากับเท่าใด?", choices: ["16 ตร.ซม.", "32 ตร.ซม.", "64 ตร.ซม.", "80 ตร.ซม."], subject: "คณิตศาสตร์", category: "เรขาคณิต", level: "ระดับพื้นฐาน", image: null },
-  { id: "20000000-0000-4000-8000-000000000004", q: "3/4 เขียนเป็นทศนิยมได้ข้อใด?", choices: ["0.25", "0.50", "0.75", "1.25"], subject: "คณิตศาสตร์", category: "เศษส่วน", level: "ระดับพื้นฐาน", image: null },
-  { id: "20000000-0000-4000-8000-000000000005", q: "ค่าเฉลี่ยของ 6, 8 และ 10 เท่ากับเท่าใด?", choices: ["7", "8", "9", "10"], subject: "คณิตศาสตร์", category: "สถิติ", level: "ระดับพื้นฐาน", image: null },
-  { id: "20000000-0000-4000-8000-000000000006", q: "มุมตรงมีขนาดกี่องศา?", choices: ["45°", "90°", "180°", "360°"], subject: "คณิตศาสตร์", category: "เรขาคณิต", level: "ระดับพื้นฐาน", image: null },
-  { id: "20000000-0000-4000-8000-000000000007", q: "2⁵ มีค่าเท่าใด?", choices: ["10", "16", "25", "32"], subject: "คณิตศาสตร์", category: "เลขยกกำลัง", level: "ระดับพื้นฐาน", image: null },
-  { id: "20000000-0000-4000-8000-000000000008", q: "จำนวนถัดไปของ 2, 4, 8, 16 คือข้อใด?", choices: ["18", "24", "30", "32"], subject: "คณิตศาสตร์", category: "ลำดับ", level: "ระดับพื้นฐาน", image: null },
-  { id: "20000000-0000-4000-8000-000000000009", q: "รากที่สองของ 144 คือข้อใด?", choices: ["10", "11", "12", "14"], subject: "คณิตศาสตร์", category: "รากที่สอง", level: "ระดับพื้นฐาน", image: null },
-  { id: "20000000-0000-4000-8000-000000000010", q: "15% ของ 200 เท่ากับเท่าใด?", choices: ["15", "20", "30", "45"], subject: "คณิตศาสตร์", category: "ร้อยละ", level: "ระดับพื้นฐาน", image: null },
+  { id: "20000000-0000-4000-8000-000000000001", q: "ถ้า 3x + 7 = 22 แล้ว x มีค่าเท่าใด?", choices: ["3", "5", "7", "9"], choiceImageIds: [null, null, null, null], choiceImages: [null, null, null, null], subject: "คณิตศาสตร์", category: "พีชคณิต", level: "ระดับพื้นฐาน", image: null },
+  { id: "20000000-0000-4000-8000-000000000002", q: "จำนวนใดเป็นจำนวนเฉพาะ?", choices: ["21", "27", "29", "33"], choiceImageIds: [null, null, null, null], choiceImages: [null, null, null, null], subject: "คณิตศาสตร์", category: "จำนวน", level: "ระดับพื้นฐาน", image: null },
+  { id: "20000000-0000-4000-8000-000000000003", q: "พื้นที่ของสี่เหลี่ยมจัตุรัสด้านยาว 8 ซม. เท่ากับเท่าใด?", choices: ["16 ตร.ซม.", "32 ตร.ซม.", "64 ตร.ซม.", "80 ตร.ซม."], choiceImageIds: [null, null, null, null], choiceImages: [null, null, null, null], subject: "คณิตศาสตร์", category: "เรขาคณิต", level: "ระดับพื้นฐาน", image: null },
+  { id: "20000000-0000-4000-8000-000000000004", q: "3/4 เขียนเป็นทศนิยมได้ข้อใด?", choices: ["0.25", "0.50", "0.75", "1.25"], choiceImageIds: [null, null, null, null], choiceImages: [null, null, null, null], subject: "คณิตศาสตร์", category: "เศษส่วน", level: "ระดับพื้นฐาน", image: null },
+  { id: "20000000-0000-4000-8000-000000000005", q: "ค่าเฉลี่ยของ 6, 8 และ 10 เท่ากับเท่าใด?", choices: ["7", "8", "9", "10"], choiceImageIds: [null, null, null, null], choiceImages: [null, null, null, null], subject: "คณิตศาสตร์", category: "สถิติ", level: "ระดับพื้นฐาน", image: null },
+  { id: "20000000-0000-4000-8000-000000000006", q: "มุมตรงมีขนาดกี่องศา?", choices: ["45°", "90°", "180°", "360°"], choiceImageIds: [null, null, null, null], choiceImages: [null, null, null, null], subject: "คณิตศาสตร์", category: "เรขาคณิต", level: "ระดับพื้นฐาน", image: null },
+  { id: "20000000-0000-4000-8000-000000000007", q: "2⁵ มีค่าเท่าใด?", choices: ["10", "16", "25", "32"], choiceImageIds: [null, null, null, null], choiceImages: [null, null, null, null], subject: "คณิตศาสตร์", category: "เลขยกกำลัง", level: "ระดับพื้นฐาน", image: null },
+  { id: "20000000-0000-4000-8000-000000000008", q: "จำนวนถัดไปของ 2, 4, 8, 16 คือข้อใด?", choices: ["18", "24", "30", "32"], choiceImageIds: [null, null, null, null], choiceImages: [null, null, null, null], subject: "คณิตศาสตร์", category: "ลำดับ", level: "ระดับพื้นฐาน", image: null },
+  { id: "20000000-0000-4000-8000-000000000009", q: "รากที่สองของ 144 คือข้อใด?", choices: ["10", "11", "12", "14"], choiceImageIds: [null, null, null, null], choiceImages: [null, null, null, null], subject: "คณิตศาสตร์", category: "รากที่สอง", level: "ระดับพื้นฐาน", image: null },
+  { id: "20000000-0000-4000-8000-000000000010", q: "15% ของ 200 เท่ากับเท่าใด?", choices: ["15", "20", "30", "45"], choiceImageIds: [null, null, null, null], choiceImages: [null, null, null, null], subject: "คณิตศาสตร์", category: "ร้อยละ", level: "ระดับพื้นฐาน", image: null },
 ];
 
 const defaultAnswers: Record<number, number> = {};
@@ -145,6 +147,17 @@ function clampPercent(value: number) {
   return Math.max(0, Math.min(100, Math.round(value)));
 }
 
+function isExternalImage(url: string | null | undefined) {
+  return Boolean(url && /^https?:\/\//i.test(url));
+}
+
+function proxiedImageUrl(kind: "question" | "answer", id: string, rawUrl: string | null | undefined) {
+  if (!rawUrl) return "";
+  if (!isExternalImage(rawUrl)) return rawUrl;
+  const base = "https://pttsjpmwvppkaacgzdqh.supabase.co/functions/v1/skillquest-image";
+  return `${base}?kind=${kind}&id=${encodeURIComponent(id)}`;
+}
+
 function Glyph({ children }: { children: React.ReactNode }) {
   return <span className="glyph" aria-hidden="true">{children}</span>;
 }
@@ -211,6 +224,14 @@ export default function Home() {
         .slice()
         .sort((a, b) => a.choice_index - b.choice_index)
         .map((choice) => choice.answer),
+      choiceImageIds: question.choices
+        .slice()
+        .sort((a, b) => a.choice_index - b.choice_index)
+        .map((choice) => choice.answer_id),
+      choiceImages: question.choices
+        .slice()
+        .sort((a, b) => a.choice_index - b.choice_index)
+        .map((choice) => choice.image),
       subject: payload.test.subject,
       category: payload.test.category,
       level: question.level || payload.test.level,
@@ -658,7 +679,29 @@ export default function Home() {
         {view === "exam" && <div className="exam-page">
           <header className="exam-header"><div><button className="back-link" onClick={() => { void syncQuestionLog(current, "pause", "paused"); setRunning(false); setView("dashboard"); }}>← กลับภาพรวม</button><h1>{activeTestTitle}</h1></div><div className="exam-metrics"><div><small>เวลาที่ทำจริง</small><b><i className={running ? "live-dot" : "live-dot paused"}/>{formatTime(seconds)}</b></div><div><small>ความคืบหน้า</small><b>{answeredCount}/{questions.length} ข้อ</b></div><button className="secondary" onClick={() => { void syncQuestionLog(current, "pause", "paused"); setRunning(false); setResumeOpen(true); }}>พักข้อสอบ</button></div></header>
           <div className="exam-body"><aside className="question-nav"><div><h2>รายการข้อ</h2><span>{remaining} ข้อยังไม่ตอบ</span></div><div className="question-grid">{questions.map((_, i) => { const state = i === current ? "current" : answers[i] !== undefined ? "answered" : states[i] === "paused" ? "skipped" : "empty"; return <button key={i} className={state} onClick={() => goTo(i)} aria-label={`ไปข้อ ${i + 1}`}>{i + 1}</button>; })}</div><div className="question-legend"><span><i className="answered"/>ตอบแล้ว</span><span><i className="skipped"/>ข้ามไว้</span><span><i className="current"/>ข้อปัจจุบัน</span></div></aside>
-            <section className="question-stage"><div className="question-status"><span>ข้อ {current + 1} จาก {questions.length}</span><span>{answers[current] !== undefined ? "ตอบแล้ว" : states[current] === "paused" ? "ข้ามไว้" : "กำลังทำ"}</span><span>ข้อนี้ {formatTime(currentQuestionSeconds)}</span><span className={`save-state ${saved ? "show" : ""}`}>✓ บันทึกแล้ว</span></div><article className="question-card"><small>{currentQuestion.subject} · {currentQuestion.category} · {currentQuestion.level}</small><h2>{currentQuestion.q}</h2>{currentQuestion.image && <img className="question-image" src={currentQuestion.image} alt={`รูปประกอบข้อ ${current + 1}`} loading="lazy" referrerPolicy="no-referrer" />}<p>เลือกคำตอบที่ถูกต้องที่สุดเพียงข้อเดียว</p><div className="assist-row"><button className="hint-button" disabled={hinting || totalHintsUsed >= 2 || currentHints.length > 0 || backendStatus !== "online"} onClick={() => void handleHint()}>{hinting ? "กำลังตัดตัวเลือก…" : `Hint ${totalHintsUsed}/2`}</button><span>ตัดตัวเลือกผิด 2 ข้อ · หัก {hintPenalty.toFixed(1)} คะแนน</span></div>{currentHints.length > 0 && <div className="hint-stack" aria-live="polite">{currentHints.map((hint) => <p key={hint.hint_id}>{hint.hint_text}</p>)}</div>}<div className="choices">{currentQuestion.choices.map((choice, i) => { const eliminated = eliminatedChoices.has(i); return <button key={`${currentQuestion.id}-${i}`} disabled={eliminated} className={`${answers[current] === i ? "selected" : ""} ${eliminated ? "eliminated" : ""}`} onClick={() => choose(i)}><span>{String.fromCharCode(65 + i)}</span><b>{choice}</b><i>{eliminated ? "ตัดออก" : answers[current] === i ? "✓" : ""}</i></button>; })}</div></article>{backendMessage && <p className="system-note" role="status">{backendMessage}</p>}<div className="exam-footer"><button className="secondary" disabled={current === 0} onClick={() => goTo(current - 1)}>ย้อนกลับ</button><button className="skip" onClick={() => { void syncQuestionLog(current, "skip", "skipped"); setStates((p) => ({ ...p, [current]: "paused" })); if (current < questions.length - 1) goTo(current + 1); }}>ข้ามข้อนี้</button>{current < questions.length - 1 ? <button className="primary" onClick={() => goTo(current + 1)}>ข้อถัดไป →</button> : <button className="primary" disabled={submitting} onClick={() => void handleSubmit()}>{submitting ? "กำลังตรวจคะแนน…" : "ส่งข้อสอบ"}</button>}</div></section>
+            <section className="question-stage">
+              <div className="question-status"><span>ข้อ {current + 1} จาก {questions.length}</span><span>{answers[current] !== undefined ? "ตอบแล้ว" : states[current] === "paused" ? "ข้ามไว้" : "กำลังทำ"}</span><span>ข้อนี้ {formatTime(currentQuestionSeconds)}</span><span className={`save-state ${saved ? "show" : ""}`}>✓ บันทึกแล้ว</span></div>
+              <article className="question-card">
+                <small>{currentQuestion.subject} · {currentQuestion.category} · {currentQuestion.level}</small>
+                <h2>{currentQuestion.q}</h2>
+                {currentQuestion.image && <img className="question-image" src={proxiedImageUrl("question", currentQuestion.id, currentQuestion.image)} alt={`รูปประกอบข้อ ${current + 1}`} loading="lazy" referrerPolicy="no-referrer" />}
+                <p>เลือกคำตอบที่ถูกต้องที่สุดเพียงข้อเดียว</p>
+                <div className="assist-row"><button className="hint-button" disabled={hinting || totalHintsUsed >= 2 || currentHints.length > 0 || backendStatus !== "online"} onClick={() => void handleHint()}>{hinting ? "กำลังตัดตัวเลือก…" : `Hint ${totalHintsUsed}/2`}</button><span>ตัดตัวเลือกผิด 2 ข้อ · หัก {hintPenalty.toFixed(1)} คะแนน</span></div>
+                {currentHints.length > 0 && <div className="hint-stack" aria-live="polite">{currentHints.map((hint) => <p key={hint.hint_id}>{hint.hint_text}</p>)}</div>}
+                <div className="choices">{currentQuestion.choices.map((choice, i) => {
+                  const eliminated = eliminatedChoices.has(i);
+                  const answerImageId = currentQuestion.choiceImageIds[i];
+                  const answerImage = currentQuestion.choiceImages[i];
+                  return <button key={`${currentQuestion.id}-${i}`} disabled={eliminated} className={`${answers[current] === i ? "selected" : ""} ${eliminated ? "eliminated" : ""}`} onClick={() => choose(i)}>
+                    <span>{String.fromCharCode(65 + i)}</span>
+                    <b>{choice}{answerImageId && answerImage && <img className="choice-image" src={proxiedImageUrl("answer", answerImageId, answerImage)} alt={`รูปประกอบตัวเลือก ${String.fromCharCode(65 + i)}`} loading="lazy" referrerPolicy="no-referrer" />}</b>
+                    <i>{eliminated ? "ตัดออก" : answers[current] === i ? "✓" : ""}</i>
+                  </button>;
+                })}</div>
+              </article>
+              {backendMessage && <p className="system-note" role="status">{backendMessage}</p>}
+              <div className="exam-footer"><button className="secondary" disabled={current === 0} onClick={() => goTo(current - 1)}>ย้อนกลับ</button><button className="skip" onClick={() => { void syncQuestionLog(current, "skip", "skipped"); setStates((p) => ({ ...p, [current]: "paused" })); if (current < questions.length - 1) goTo(current + 1); }}>ข้ามข้อนี้</button>{current < questions.length - 1 ? <button className="primary" onClick={() => goTo(current + 1)}>ข้อถัดไป →</button> : <button className="primary" disabled={submitting} onClick={() => void handleSubmit()}>{submitting ? "กำลังตรวจคะแนน…" : "ส่งข้อสอบ"}</button>}</div>
+            </section>
           </div>
         </div>}
 
