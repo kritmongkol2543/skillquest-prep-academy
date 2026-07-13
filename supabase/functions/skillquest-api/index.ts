@@ -1,5 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "@supabase/supabase-js";
+import { createClient } from "npm:@supabase/supabase-js@2.110.2";
 
 const ALLOWED_SITES_ORIGIN = "https://skillquest-player-hub.kritmongkol2543.chatgpt.site";
 const MAX_BODY_BYTES = 32_768;
@@ -61,6 +61,50 @@ Deno.serve(async (request: Request) => {
     const limit = Math.min(50, Math.max(1, rawLimit));
     const { data, error } = await admin.rpc("get_leaderboard", { p_limit: limit });
     if (error) return json(origin, { error: "DATA_UNAVAILABLE" }, 503);
+    return json(origin, { data });
+  }
+
+  if (body.action === "save_profile") {
+    const displayName = typeof body.display_name === "string" ? body.display_name : "ผู้เตรียมสอบ";
+    const { data, error } = await admin.rpc("upsert_profile_service", {
+      p_user_id: authData.user.id,
+      p_display_name: displayName,
+    });
+    if (error) return json(origin, { error: "PROFILE_SAVE_FAILED" }, 503);
+    return json(origin, { data });
+  }
+
+  if (body.action === "list_tests") {
+    const { data, error } = await admin.rpc("list_tests_service");
+    if (error) return json(origin, { error: "TESTS_UNAVAILABLE" }, 503);
+    return json(origin, { data });
+  }
+
+  if (body.action === "get_test") {
+    const testId = body.test_id;
+    if (typeof testId !== "string") return json(origin, { error: "INVALID_TEST" }, 400);
+    const { data, error } = await admin.rpc("get_test_questions_service", { p_test_id: testId });
+    if (error) return json(origin, { error: "TEST_UNAVAILABLE" }, 503);
+    if (!data) return json(origin, { error: "TEST_NOT_FOUND" }, 404);
+    return json(origin, { data });
+  }
+
+  if (body.action === "attempt_history") {
+    const rawLimit = typeof body.limit === "number" ? Math.trunc(body.limit) : 10;
+    const limit = Math.min(50, Math.max(1, rawLimit));
+    const { data, error } = await admin.rpc("get_attempt_history_service", {
+      p_user_id: authData.user.id,
+      p_limit: limit,
+    });
+    if (error) return json(origin, { error: "HISTORY_UNAVAILABLE" }, 503);
+    return json(origin, { data });
+  }
+
+  if (body.action === "dashboard_summary") {
+    const { data, error } = await admin.rpc("get_dashboard_summary_service", {
+      p_user_id: authData.user.id,
+    });
+    if (error) return json(origin, { error: "DASHBOARD_UNAVAILABLE" }, 503);
     return json(origin, { data });
   }
 

@@ -23,6 +23,57 @@ export type RemoteAttempt = {
   Test: { Question: string; Subject: string } | null;
 };
 
+export type RemoteTest = {
+  test_id: string;
+  category_id?: string;
+  title: string;
+  subject: string;
+  subject_id?: string;
+  category: string;
+  level: string;
+  duration: number;
+  question_count: number;
+};
+
+export type RemoteQuestionChoice = {
+  answer_id: string;
+  choice_index: number;
+  answer: string;
+  image: string | null;
+};
+
+export type RemoteQuestion = {
+  id: string;
+  question: string;
+  subject_id: string;
+  category_id: string;
+  level: string;
+  image: string | null;
+  position: number;
+  choices: RemoteQuestionChoice[];
+};
+
+export type RemoteTestPayload = {
+  test: RemoteTest;
+  questions: RemoteQuestion[];
+};
+
+export type DashboardSubjectSummary = {
+  subject: string;
+  attempts: number;
+  accuracy: number;
+  active_seconds: number;
+};
+
+export type DashboardSummary = {
+  attempts_count: number;
+  average_accuracy: number;
+  active_seconds: number;
+  answered_logs: number;
+  last_activity_at: string | null;
+  subjects: DashboardSubjectSummary[];
+};
+
 export type LeaderboardEntry = {
   rank_position: number;
   public_id: string;
@@ -88,13 +139,53 @@ async function getSessionHeaders() {
 
 export async function saveRemoteProfile(displayName: string) {
   await ensureAnonymousSession(displayName);
+  const { data, error } = await supabase.functions.invoke("skillquest-api", {
+    headers: await getSessionHeaders(),
+    body: { action: "save_profile", display_name: displayName },
+  });
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+  return data?.data;
+}
+
+export async function loadRemoteTests() {
+  const { data, error } = await supabase.functions.invoke("skillquest-api", {
+    headers: await getSessionHeaders(),
+    body: { action: "list_tests" },
+  });
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+  return (data?.data ?? []) as RemoteTest[];
+}
+
+export async function loadRemoteTest(testId: string) {
+  const { data, error } = await supabase.functions.invoke("skillquest-api", {
+    headers: await getSessionHeaders(),
+    body: { action: "get_test", test_id: testId },
+  });
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+  return data?.data as RemoteTestPayload;
 }
 
 export async function loadRemoteAttempts() {
-  // The ER-aligned backend stores per-question analysis in "Log" instead of
-  // exposing old attempt/question_set tables directly to the browser.
-  // Dashboard examples remain local until a dedicated history RPC is added.
-  return [] as RemoteAttempt[];
+  const { data, error } = await supabase.functions.invoke("skillquest-api", {
+    headers: await getSessionHeaders(),
+    body: { action: "attempt_history", limit: 10 },
+  });
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+  return (data?.data ?? []) as RemoteAttempt[];
+}
+
+export async function loadDashboardSummary() {
+  const { data, error } = await supabase.functions.invoke("skillquest-api", {
+    headers: await getSessionHeaders(),
+    body: { action: "dashboard_summary" },
+  });
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+  return data?.data as DashboardSummary;
 }
 
 export async function loadLeaderboard() {
