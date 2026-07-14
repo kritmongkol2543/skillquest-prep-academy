@@ -33,6 +33,7 @@ export type RemoteTest = {
   level: string;
   duration: number;
   question_count: number;
+  status?: "catalog" | "in_progress" | "paused" | "cancelled" | "submitted";
 };
 
 export type RemoteQuestionChoice = {
@@ -216,6 +217,26 @@ export async function loadRemoteTest(testId: string) {
   if (error) throw error;
   if (data?.error) throw new Error(data.error);
   return data?.data as RemoteTestPayload;
+}
+
+export async function startRemoteTest(categoryId: string, clientNonce: string) {
+  const { data, error } = await supabase.functions.invoke("skillquest-api", {
+    headers: await getSessionHeaders(),
+    body: { action: "start_test", category_id: categoryId, client_nonce: clientNonce },
+  });
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+  return data?.data as RemoteTest;
+}
+
+export async function pauseRemoteTest(testId: string) {
+  const { data, error } = await supabase.functions.invoke("skillquest-api", {
+    headers: await getSessionHeaders(),
+    body: { action: "pause_test", test_id: testId },
+  });
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+  return data?.data as { test_id: string; status: string; paused_at: string };
 }
 
 export async function loadRemoteAttempts() {

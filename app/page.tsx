@@ -11,7 +11,9 @@ import {
   loadRemoteAttempts,
   loadRemoteTests,
   requestRemoteHint,
+  pauseRemoteTest,
   saveRemoteProfile,
+  startRemoteTest,
   submitRemoteAttempt,
   type AttemptResult,
   type DashboardSummary,
@@ -84,6 +86,8 @@ type SavedAttempt = {
   hints?: Record<number, HintResult[]>;
   status?: "in_progress" | "paused";
   testId?: string;
+  categoryId?: string;
+  sessionId?: string;
 };
 
 let cachedSavedAttempt: SavedAttempt | null | undefined;
@@ -182,6 +186,7 @@ export default function Home() {
   const [remoteLeaders, setRemoteLeaders] = useState<LeaderboardEntry[]>([]);
   const [testOptions, setTestOptions] = useState<RemoteTest[]>([]);
   const [selectedTest, setSelectedTest] = useState<RemoteTest>(fallbackTest);
+  const [activeSessionId, setActiveSessionId] = useState(() => readSavedAttempt()?.sessionId ?? "");
   const [questions, setQuestions] = useState<ExamQuestion[]>([]);
   const [loadedTestId, setLoadedTestId] = useState("");
   const [loadingQuestions, setLoadingQuestions] = useState(false);
@@ -198,6 +203,7 @@ export default function Home() {
   const questionSecondsRef = useRef(questionSeconds);
   const questionsRef = useRef(questions);
   const selectedTestRef = useRef(selectedTest);
+  const activeSessionIdRef = useRef(activeSessionId);
   const initialNameRef = useRef(name);
 
   const answeredCount = Object.keys(answers).filter((key) => Number(key) < questions.length).length;
@@ -209,9 +215,10 @@ export default function Home() {
   const currentHints = hints[current] ?? [];
   const eliminatedChoices = new Set(currentHints.flatMap((hint) => hint.eliminated_choices ?? []));
   const currentQuestion = questions[current] ?? questions[0] ?? fallbackQuestions[0];
-  const activeTestId = selectedTest.test_id;
+  const selectedCategoryId = selectedTest.category_id || selectedTest.test_id;
+  const activeTestId = activeSessionId;
   const activeTestTitle = selectedTest.title;
-  const examReady = Boolean(activeTestId) && !loadingQuestions;
+  const examReady = Boolean(selectedCategoryId) && !loadingQuestions;
   const activeSubject = selectedTest.subject;
   const subjectOptions = Array.from(new Set((testOptions.length ? testOptions : [fallbackTest]).map((test) => test.subject)));
   const categoryOptions = (testOptions.length ? testOptions : [fallbackTest]).filter((test) => test.subject === activeSubject);
@@ -269,7 +276,10 @@ export default function Home() {
   function chooseTestOption(testId: string) {
     const nextTest = (testOptions.length ? testOptions : [fallbackTest]).find((test) => test.test_id === testId);
     if (!nextTest) return;
+    if (activeSessionIdRef.current) void pauseRemoteTest(activeSessionIdRef.current).catch(() => undefined);
     setSelectedTest(nextTest);
+    setActiveSessionId("");
+    activeSessionIdRef.current = "";
     setQuestions([]);
     setLoadedTestId("");
     selectedTestRef.current = nextTest;
@@ -292,8 +302,8 @@ export default function Home() {
         setDashboardSummary(summary);
         setLearningInsights(insights);
         setTestOptions(testRows);
-        const savedTestId = readSavedAttempt()?.testId;
-        const nextTest = testRows.find((test) => test.test_id === savedTestId) ?? testRows[0];
+        const savedCategoryId = readSavedAttempt()?.categoryId ?? readSavedAttempt()?.testId;
+        const nextTest = testRows.find((test) => (test.category_id || test.test_id) === savedCategoryId) ?? testRows[0];
         if (nextTest) {
           setSelectedTest(nextTest);
           setQuestions([]);
@@ -318,7 +328,8 @@ export default function Home() {
     questionSecondsRef.current = questionSeconds;
     questionsRef.current = questions;
     selectedTestRef.current = selectedTest;
-  }, [answers, current, questionSeconds, questions, selectedTest, states]);
+    activeSessionIdRef.current = activeSessionId;
+  }, [activeSessionId, answers, current, questionSeconds, questions, selectedTest, states]);
 
   useEffect(() => {
     if (!running) return;
@@ -349,14 +360,14 @@ export default function Home() {
 
   useEffect(() => {
     if (clientNonce) localStorage.setItem("skillquest-attempt-nonce", clientNonce);
-    localStorage.setItem("skillquest-attempt", JSON.stringify({ answers, states, current, seconds, questionSeconds, hints, testId: activeTestId, status: running ? "in_progress" : "paused" }));
+    localStorage.setItem("skillquest-attempt", JSON.stringify({ answers, states, current, seconds, questionSeconds, hints, testId: activeTestId, categoryId: selectedCategoryId, sessionId: activeSessionId, status: running ? "in_progress" : "paused" }));
     const showTimer = window.setTimeout(() => setSaved(true), 0);
     const hideTimer = window.setTimeout(() => setSaved(false), 900);
     return () => {
       window.clearTimeout(showTimer);
       window.clearTimeout(hideTimer);
     };
-  }, [activeTestId, answers, states, current, seconds, questionSeconds, hints, running, clientNonce]);
+  }, [activeTestId, activeSessionId, answers, states, current, seconds, questionSeconds, hints, running, clientNonce, selectedCategoryId]);
 
   const chartPoints = useMemo(() => range === "30 วัน" ? "0,86 48,67 96,72 144,38 192,52 240,24 288,35 336,12" : "0,78 48,72 96,50 144,63 192,34 240,44 288,18 336,26", [range]);
   const averageAccuracy = dashboardSummary ? Math.round(Number(dashboardSummary.average_accuracy)) : remoteAttempts.length ? Math.round(remoteAttempts.reduce((sum, item) => sum + Number(item.accuracy), 0) / remoteAttempts.length) : 82;
@@ -402,11 +413,11 @@ export default function Home() {
 
   async function syncQuestionLog(index: number, eventType: QuestionLogEvent, status?: QuestionLogStatus, quiet = true) {
     const activeQuestions = questionsRef.current;
-    const activeTest = selectedTestRef.current;
-    if (backendStatus !== "online" || !clientNonce || !activeQuestions[index] || !activeTest.test_id) return;
+    const sessionId = activeSessionIdRef.current;
+    if (backendStatus !== "online" || !clientNonce || !activeQuestions[index] || !sessionId) return;
     try {
       await logQuestionActivity({
-        set_id: activeTest.test_id,
+        set_id: sessionId,
         question_id: activeQuestions[index].id,
         client_nonce: clientNonce,
         event_type: eventType,
@@ -429,8 +440,22 @@ export default function Home() {
       setBackendMessage("กำลังโหลดชุดข้อสอบ กรุณารอสักครู่");
       return;
     }
-    if (loadedTestId !== activeTestId || questions.length === 0) {
-      const ok = await loadExamTest(activeTestId);
+    let sessionId = activeSessionIdRef.current;
+    if (!sessionId) {
+      try {
+        const started = await startRemoteTest(selectedCategoryId, clientNonce);
+        sessionId = started.test_id;
+        setActiveSessionId(sessionId);
+        activeSessionIdRef.current = sessionId;
+        setSelectedTest(started);
+        selectedTestRef.current = started;
+      } catch {
+        setBackendMessage("เริ่มทำข้อสอบไม่สำเร็จ กรุณาลองใหม่อีกครั้ง");
+        return;
+      }
+    }
+    if (loadedTestId !== sessionId || questions.length === 0) {
+      const ok = await loadExamTest(sessionId);
       if (!ok && backendStatus === "online") return;
     }
     setView("exam");
@@ -454,6 +479,9 @@ export default function Home() {
     localStorage.removeItem("skillquest-attempt");
     localStorage.setItem("skillquest-attempt-nonce", nextNonce);
     setClientNonce(nextNonce);
+    setActiveSessionId("");
+    activeSessionIdRef.current = "";
+    setLoadedTestId("");
     setAnswers({});
     setStates({});
     setCurrent(0);
@@ -571,7 +599,7 @@ export default function Home() {
               <label>
                 <span>เลือกชุดตาม Category</span>
                 <select
-                  value={activeTestId}
+                  value={selectedCategoryId}
                   disabled={loadingQuestions || categoryOptions.length === 0}
                   onChange={(event) => chooseTestOption(event.target.value)}
                   aria-label="เลือกชุดข้อสอบ"

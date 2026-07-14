@@ -80,12 +80,43 @@ Deno.serve(async (request: Request) => {
     return json(origin, { data });
   }
 
+  if (body.action === "start_test") {
+    const categoryId = body.category_id;
+    const clientNonce = body.client_nonce;
+    if (typeof categoryId !== "string" || typeof clientNonce !== "string") return json(origin, { error: "INVALID_TEST" }, 400);
+    const { data, error } = await admin.rpc("start_test_service", {
+      p_user_id: authData.user.id,
+      p_category_id: categoryId,
+      p_client_nonce: clientNonce,
+    });
+    if (error) {
+      const message = error.message ?? "";
+      if (message.includes("INVALID_") || message.includes("NOT_AVAILABLE")) return json(origin, { error: "INVALID_TEST" }, 400);
+      return json(origin, { error: "TEST_START_FAILED" }, 503);
+    }
+    return json(origin, { data });
+  }
+
   if (body.action === "get_test") {
     const testId = body.test_id;
     if (typeof testId !== "string") return json(origin, { error: "INVALID_TEST" }, 400);
-    const { data, error } = await admin.rpc("get_test_questions_service", { p_test_id: testId });
+    const { data, error } = await admin.rpc("get_test_questions_service", {
+      p_user_id: authData.user.id,
+      p_test_id: testId,
+    });
     if (error) return json(origin, { error: "TEST_UNAVAILABLE" }, 503);
     if (!data) return json(origin, { error: "TEST_NOT_FOUND" }, 404);
+    return json(origin, { data });
+  }
+
+  if (body.action === "pause_test") {
+    const testId = body.test_id;
+    if (typeof testId !== "string") return json(origin, { error: "INVALID_TEST" }, 400);
+    const { data, error } = await admin.rpc("pause_test_service", {
+      p_user_id: authData.user.id,
+      p_test_id: testId,
+    });
+    if (error) return json(origin, { error: "PAUSE_FAILED" }, 503);
     return json(origin, { data });
   }
 
