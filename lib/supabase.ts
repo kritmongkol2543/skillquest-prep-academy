@@ -242,7 +242,7 @@ export async function pauseRemoteTest(testId: string) {
 export async function loadRemoteAttempts() {
   const { data, error } = await supabase.functions.invoke("skillquest-api", {
     headers: await getSessionHeaders(),
-    body: { action: "attempt_history", limit: 10 },
+    body: { action: "attempt_history", limit: 50 },
   });
   if (error) throw error;
   if (data?.error) throw new Error(data.error);

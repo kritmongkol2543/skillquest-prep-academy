@@ -273,14 +273,18 @@ h1, h2, p { text-wrap: pretty; }
 
 .modal-backdrop { position: fixed; inset: 0; z-index: 100; padding: 20px; display: grid; place-items: center; background: #14283fcf; backdrop-filter: blur(5px); }
 .modal { width: min(420px, 100%); padding: 30px; border-radius: 14px; background: #fff; text-align: center; }
+.modal.wide { width: min(560px, 100%); }
 .modal-icon { width: 48px; height: 48px; margin: 0 auto 18px; display: grid; place-items: center; border-radius: 50%; background: #eaf0f4; color: var(--navy); font-weight: 800; }
 .modal-icon.warning { background: #f8eee6; color: var(--orange); }
 .modal-icon.result { background: var(--green-soft); color: var(--green); }
 .modal h2 { margin: 0 0 7px; color: var(--navy); font-size: 22px; }
 .modal > p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.65; }
 .resume-summary { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 20px 0; text-align: left; }
+.resume-summary.detailed { grid-template-columns: 1fr 1fr; }
 .resume-summary span { padding: 12px; display: grid; border-radius: 9px; background: var(--soft); }
 .resume-summary small { color: var(--muted); font-size: 10px; }
+.resume-summary b { overflow-wrap: anywhere; }
+.history-empty { margin-top: 18px; }
 .danger-link { margin-top: 13px; border: 0; background: none; color: var(--danger); font-size: 12px; cursor: pointer; }
 .danger-link.neutral { color: var(--muted); }
 .missing-list { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin: 18px 0; }

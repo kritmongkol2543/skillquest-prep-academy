@@ -7,18 +7,15 @@ import {
   loadLearningInsights,
   loadRemoteTest,
   logQuestionActivity,
-  loadLeaderboard,
   loadRemoteAttempts,
   loadRemoteTests,
   requestRemoteHint,
   pauseRemoteTest,
-  saveRemoteProfile,
   startRemoteTest,
   submitRemoteAttempt,
   type AttemptResult,
   type DashboardSummary,
   type HintResult,
-  type LeaderboardEntry,
   type LearningInsights,
   type QuestionLogEvent,
   type QuestionLogStatus,
@@ -27,7 +24,7 @@ import {
   type RemoteTestPayload,
 } from "@/lib/supabase";
 
-type View = "dashboard" | "ranking" | "exam";
+type View = "dashboard" | "history" | "exam";
 type QuestionState = "viewed" | "paused" | "answered" | "changed_answer" | "reviewed";
 type ExamQuestion = {
   id: string;
@@ -107,29 +104,10 @@ function readSavedAttempt() {
   return cachedSavedAttempt;
 }
 
-function readInitialName() {
-  if (typeof window === "undefined") return "Boss";
-  return localStorage.getItem("skillquest-name") ?? "Boss";
-}
-
 function readInitialNonce() {
   if (typeof window === "undefined") return "";
   return localStorage.getItem("skillquest-attempt-nonce") ?? crypto.randomUUID();
 }
-
-const history = [
-  { date: "10 ก.ค.", subject: "คณิตศาสตร์", set: "Math Challenge 04", score: "42/50", accuracy: "84%", time: "28:16", status: "สำเร็จ" },
-  { date: "8 ก.ค.", subject: "ภาษาอังกฤษ", set: "English Sprint 08", score: "46/50", accuracy: "92%", time: "21:44", status: "สำเร็จ" },
-  { date: "5 ก.ค.", subject: "วิทยาศาสตร์", set: "Science Core 03", score: "—", accuracy: "—", time: "08:32", status: "ยกเลิก" },
-];
-
-const leaders = [
-  { name: "ภูผา", points: "14,920", gain: "+18%", initials: "ภ" },
-  { name: "นีน่า", points: "13,870", gain: "+14%", initials: "น" },
-  { name: "Boss", points: "12,450", gain: "+12%", initials: "B", me: true },
-  { name: "มายด์", points: "11,930", gain: "+11%", initials: "ม" },
-  { name: "ต้น", points: "10,840", gain: "+9%", initials: "ต" },
-];
 
 function formatTime(total: number) {
   const h = Math.floor(total / 3600);
@@ -144,6 +122,27 @@ function formatDurationShort(total: number) {
   const m = Math.floor(total / 60);
   const s = total % 60;
   return s ? `${m}น ${s}วิ` : `${m}น`;
+}
+
+function formatDurationLong(total: number) {
+  if (!total) return "—";
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const parts = [];
+  if (h) parts.push(`${h}h`);
+  if (m || h) parts.push(`${m}m`);
+  parts.push(`${s}s`);
+  return parts.join(" ");
+}
+
+function formatPace(total: number) {
+  if (!total) return "—";
+  const rounded = Math.max(1, Math.round(total));
+  if (rounded < 60) return `${rounded}s/ข้อ`;
+  const m = Math.floor(rounded / 60);
+  const s = rounded % 60;
+  return `${m}m ${s}s/ข้อ`;
 }
 
 function clampPercent(value: number) {
@@ -166,10 +165,30 @@ function Glyph({ children }: { children: React.ReactNode }) {
   return <span className="glyph" aria-hidden="true">{children}</span>;
 }
 
+type HistoryRow = {
+  date: string;
+  subject: string;
+  set: string;
+  score: string;
+  accuracy: string;
+  time: string;
+  status: string;
+};
+
+function HistoryTable({ rows }: { rows: HistoryRow[] }) {
+  if (!rows.length) {
+    return <div className="table-empty history-empty">ยังไม่มีประวัติที่ส่งสำเร็จ เมื่อทำข้อสอบครบและกดส่ง ระบบจะแสดงผลล่าสุดไว้ที่นี่อัตโนมัติ</div>;
+  }
+  return <div className="history-table">
+    <div className="history-head"><span>วันที่</span><span>ชุดข้อสอบ</span><span>คะแนน</span><span>ความแม่นยำ</span><span>เวลาที่ใช้</span><span>สถานะ</span></div>
+    {rows.map((h) => <div className="history-row" key={`${h.set}-${h.date}-${h.score}`}>
+      <span>{h.date}</span><span><b>{h.subject}</b><small>{h.set}</small></span><span>{h.score}</span><span>{h.accuracy}</span><span>{h.time}</span><span className="status success">{h.status}</span>
+    </div>)}
+  </div>;
+}
+
 export default function Home() {
   const [view, setView] = useState<View>("dashboard");
-  const [name, setName] = useState(readInitialName);
-  const [editingName, setEditingName] = useState(false);
   const [current, setCurrent] = useState(() => readSavedAttempt()?.current ?? 0);
   const [answers, setAnswers] = useState<Record<number, number>>(() => readSavedAttempt()?.answers ?? defaultAnswers);
   const [states, setStates] = useState<Record<number, QuestionState>>(() => readSavedAttempt()?.states ?? defaultStates);
@@ -183,10 +202,11 @@ export default function Home() {
   const [backendStatus, setBackendStatus] = useState<"connecting" | "online" | "offline">("connecting");
   const [backendMessage, setBackendMessage] = useState("");
   const [remoteAttempts, setRemoteAttempts] = useState<RemoteAttempt[]>([]);
-  const [remoteLeaders, setRemoteLeaders] = useState<LeaderboardEntry[]>([]);
   const [testOptions, setTestOptions] = useState<RemoteTest[]>([]);
   const [selectedTest, setSelectedTest] = useState<RemoteTest>(fallbackTest);
   const [activeSessionId, setActiveSessionId] = useState(() => readSavedAttempt()?.sessionId ?? "");
+  const [pendingTest, setPendingTest] = useState<RemoteTest | null>(null);
+  const [replaceOpen, setReplaceOpen] = useState(false);
   const [questions, setQuestions] = useState<ExamQuestion[]>([]);
   const [loadedTestId, setLoadedTestId] = useState("");
   const [loadingQuestions, setLoadingQuestions] = useState(false);
@@ -204,11 +224,9 @@ export default function Home() {
   const questionsRef = useRef(questions);
   const selectedTestRef = useRef(selectedTest);
   const activeSessionIdRef = useRef(activeSessionId);
-  const initialNameRef = useRef(name);
 
   const answeredCount = Object.keys(answers).filter((key) => Number(key) < questions.length).length;
   const remaining = questions.length - answeredCount;
-  const initials = name.trim().slice(0, 1).toUpperCase() || "ผ";
   const currentQuestionSeconds = questionSeconds[current] ?? 0;
   const totalHintsUsed = Object.values(hints).reduce((sum, item) => sum + item.length, 0);
   const hintPenalty = totalHintsUsed * 0.5;
@@ -222,6 +240,11 @@ export default function Home() {
   const activeSubject = selectedTest.subject;
   const subjectOptions = Array.from(new Set((testOptions.length ? testOptions : [fallbackTest]).map((test) => test.subject)));
   const categoryOptions = (testOptions.length ? testOptions : [fallbackTest]).filter((test) => test.subject === activeSubject);
+  const touchedQuestions = questions.reduce((count, _, index) => (
+    questionSeconds[index] > 0 || answers[index] !== undefined || states[index] !== undefined ? count + 1 : count
+  ), 0);
+  const averageActiveQuestionSeconds = touchedQuestions ? Math.round(seconds / touchedQuestions) : 0;
+  const hasActiveAttempt = Boolean(activeSessionId) && (seconds > 0 || touchedQuestions > 0 || questions.length > 0);
 
   function normalizeRemoteTest(payload: RemoteTestPayload): ExamQuestion[] {
     return payload.questions.map((question) => ({
@@ -273,9 +296,7 @@ export default function Home() {
     }
   }
 
-  function chooseTestOption(testId: string) {
-    const nextTest = (testOptions.length ? testOptions : [fallbackTest]).find((test) => test.test_id === testId);
-    if (!nextTest) return;
+  function selectCatalogTest(nextTest: RemoteTest, clearAttempt = true) {
     if (activeSessionIdRef.current) void pauseRemoteTest(activeSessionIdRef.current).catch(() => undefined);
     setSelectedTest(nextTest);
     setActiveSessionId("");
@@ -284,8 +305,19 @@ export default function Home() {
     setLoadedTestId("");
     selectedTestRef.current = nextTest;
     questionsRef.current = [];
-    resetAttemptState();
+    if (clearAttempt) resetAttemptState();
     setBackendMessage("");
+  }
+
+  function chooseTestOption(testId: string) {
+    const nextTest = (testOptions.length ? testOptions : [fallbackTest]).find((test) => test.test_id === testId);
+    if (!nextTest) return;
+    if (hasActiveAttempt && (nextTest.category_id || nextTest.test_id) !== selectedCategoryId) {
+      setPendingTest(nextTest);
+      setReplaceOpen(true);
+      return;
+    }
+    selectCatalogTest(nextTest, true);
   }
 
   function chooseSubjectOption(subject: string) {
@@ -296,9 +328,9 @@ export default function Home() {
   useEffect(() => {
     void (async () => {
       try {
-        await ensureAnonymousSession(initialNameRef.current);
-        const [attemptRows, leaderRows, testRows, summary, insights] = await Promise.all([loadRemoteAttempts(), loadLeaderboard(), loadRemoteTests(), loadDashboardSummary(), loadLearningInsights()]);
-        setRemoteAttempts(attemptRows); setRemoteLeaders(leaderRows);
+        await ensureAnonymousSession("ผู้ใช้งานหลัก");
+        const [attemptRows, testRows, summary, insights] = await Promise.all([loadRemoteAttempts(), loadRemoteTests(), loadDashboardSummary(), loadLearningInsights()]);
+        setRemoteAttempts(attemptRows);
         setDashboardSummary(summary);
         setLearningInsights(insights);
         setTestOptions(testRows);
@@ -381,13 +413,16 @@ export default function Home() {
       color: ["blue", "purple", "cyan", "green", "orange"][index % 5],
     }))
     : subjects;
-  const remoteHistory = remoteAttempts.map((item) => ({
+  const remoteHistory = remoteAttempts
+    .slice()
+    .sort((a, b) => new Date(b.submitted_at).getTime() - new Date(a.submitted_at).getTime())
+    .map((item) => ({
     date: new Intl.DateTimeFormat("th-TH", { day: "numeric", month: "short" }).format(new Date(item.submitted_at)),
     subject: item.Test?.Subject ?? "แบบทดสอบ",
     set: item.Test?.Question ?? "ชุดฝึก",
     score: `${item.correct_count}/${item.total_questions}`,
     accuracy: `${Math.round(Number(item.accuracy))}%`,
-    time: formatTime(item.elapsed_seconds).slice(3),
+    time: formatDurationLong(item.elapsed_seconds),
     status: "สำเร็จ",
   }));
   const insightOverview = learningInsights?.overview;
@@ -435,6 +470,26 @@ export default function Home() {
     await Promise.all(questions.map((_, index) => syncQuestionLog(index, eventType, index === currentRef.current ? "submitted" : statusFor(index))));
   }
 
+  async function startFreshExam(test: RemoteTest, nonce: string) {
+    const categoryId = test.category_id || test.test_id;
+    try {
+      const started = await startRemoteTest(categoryId, nonce);
+      setActiveSessionId(started.test_id);
+      activeSessionIdRef.current = started.test_id;
+      setSelectedTest(started);
+      selectedTestRef.current = started;
+      const ok = await loadExamTest(started.test_id);
+      if (!ok && backendStatus === "online") return false;
+      setView("exam");
+      setRunning(true);
+      window.setTimeout(() => void syncQuestionLog(0, "enter", "viewed"), 0);
+      return true;
+    } catch {
+      setBackendMessage("เริ่มทำข้อสอบไม่สำเร็จ กรุณาลองใหม่อีกครั้ง");
+      return false;
+    }
+  }
+
   async function openExam() {
     if (!examReady) {
       setBackendMessage("กำลังโหลดชุดข้อสอบ กรุณารอสักครู่");
@@ -442,17 +497,8 @@ export default function Home() {
     }
     let sessionId = activeSessionIdRef.current;
     if (!sessionId) {
-      try {
-        const started = await startRemoteTest(selectedCategoryId, clientNonce);
-        sessionId = started.test_id;
-        setActiveSessionId(sessionId);
-        activeSessionIdRef.current = sessionId;
-        setSelectedTest(started);
-        selectedTestRef.current = started;
-      } catch {
-        setBackendMessage("เริ่มทำข้อสอบไม่สำเร็จ กรุณาลองใหม่อีกครั้ง");
-        return;
-      }
+      await startFreshExam(selectedTestRef.current, clientNonce);
+      return;
     }
     if (loadedTestId !== sessionId || questions.length === 0) {
       const ok = await loadExamTest(sessionId);
@@ -461,6 +507,22 @@ export default function Home() {
     setView("exam");
     setRunning(true);
     void syncQuestionLog(current, "enter", statusFor(current));
+  }
+
+  async function confirmReplaceAttempt() {
+    if (!pendingTest) return;
+    setRunning(false);
+    if (activeSessionIdRef.current) {
+      await pauseRemoteTest(activeSessionIdRef.current).catch(() => undefined);
+    }
+    const nextTest = pendingTest;
+    const nextNonce = crypto.randomUUID();
+    resetAttemptState(true, nextNonce);
+    setPendingTest(null);
+    setReplaceOpen(false);
+    setSelectedTest(nextTest);
+    selectedTestRef.current = nextTest;
+    await startFreshExam(nextTest, nextNonce);
   }
   function goTo(index: number) {
     void syncQuestionLog(current, answers[current] !== undefined ? "answer" : "skip");
@@ -474,8 +536,8 @@ export default function Home() {
     setStates((prev) => ({ ...prev, [current]: changed ? "changed_answer" : "answered" }));
     window.setTimeout(() => void syncQuestionLog(current, "answer", changed ? "changed_answer" : "answered"), 0);
   }
-  function resetAttemptState(clearResult = true) {
-    const nextNonce = crypto.randomUUID();
+  function resetAttemptState(clearResult = true, forcedNonce?: string) {
+    const nextNonce = forcedNonce ?? crypto.randomUUID();
     localStorage.removeItem("skillquest-attempt");
     localStorage.setItem("skillquest-attempt-nonce", nextNonce);
     setClientNonce(nextNonce);
@@ -489,14 +551,6 @@ export default function Home() {
     setQuestionSeconds({});
     setHints({});
     if (clearResult) setResult(null);
-  }
-  async function saveName() {
-    const clean = name.trim() || "ผู้เตรียมสอบ";
-    setName(clean); localStorage.setItem("skillquest-name", clean); setEditingName(false);
-    if (backendStatus === "online") {
-      try { await saveRemoteProfile(clean); setRemoteLeaders(await loadLeaderboard()); }
-      catch { setBackendMessage("บันทึกชื่อในเครื่องแล้ว และจะซิงก์ใหม่ภายหลัง"); }
-    }
   }
   async function handleHint() {
     if (backendStatus !== "online" || !clientNonce) {
@@ -542,8 +596,8 @@ export default function Home() {
       const keyedAnswers = Object.fromEntries(Object.entries(answers).map(([index, choice]) => [questions[Number(index)].id, choice]));
       const submitted = await submitRemoteAttempt({ set_id: activeTestId, answers: keyedAnswers, elapsed_seconds: Math.max(30, seconds), client_nonce: clientNonce });
       setResult(submitted);
-      const [attemptRows, leaderRows, summary, insights] = await Promise.all([loadRemoteAttempts(), loadLeaderboard(), loadDashboardSummary(), loadLearningInsights()]);
-      setRemoteAttempts(attemptRows); setRemoteLeaders(leaderRows);
+      const [attemptRows, summary, insights] = await Promise.all([loadRemoteAttempts(), loadDashboardSummary(), loadLearningInsights()]);
+      setRemoteAttempts(attemptRows);
       setDashboardSummary(summary);
       setLearningInsights(insights);
       resetAttemptState(false);
@@ -561,24 +615,23 @@ export default function Home() {
         </button>
         <nav aria-label="เมนูหลัก">
           <button className={view === "dashboard" ? "active" : ""} onClick={() => setView("dashboard")}><Glyph>⌂</Glyph>ภาพรวม</button>
-          <button onClick={() => setView("dashboard")}><Glyph>◷</Glyph>ประวัติการฝึก</button>
-          <button className={view === "ranking" ? "active" : ""} onClick={() => setView("ranking")}><Glyph>≋</Glyph>อันดับ</button>
+          <button className={view === "history" ? "active" : ""} onClick={() => setView("history")}><Glyph>◷</Glyph>ประวัติการฝึก</button>
           <button className={view === "exam" ? "active" : ""} onClick={() => void openExam()}><Glyph>✓</Glyph>คลังข้อสอบ</button>
         </nav>
         <div className="side-note"><span>เป้าหมายสัปดาห์นี้</span><b>4 จาก 5 ชุด</b><div className="progress"><i style={{ width: "80%" }} /></div><small>เหลืออีก 1 ชุด</small></div>
-        <div className="user-chip"><span className="avatar">{initials}</span><div><b>{name}</b><small>ผู้เตรียมสอบ</small></div></div>
+        <div className="user-chip"><span className="avatar">1</span><div><b>โหมดผู้ใช้เดียว</b><small>ใช้งานได้ทันที</small></div></div>
       </aside>
 
       <section className="workspace">
         <header className="topbar">
           <button className="mobile-brand" onClick={() => setView("dashboard")}><span className="brand-mark">SQ</span><b>SkillQuest</b></button>
           <span className="today">วันเสาร์ที่ 11 กรกฎาคม <i className={`sync-status ${backendStatus}`}>{backendStatus === "online" ? "ซิงก์แล้ว" : backendStatus === "connecting" ? "กำลังเชื่อมต่อ" : "ออฟไลน์"}</i></span>
-          <div className="top-summary"><span><b>12</b> วันต่อเนื่อง</span><span><b>12,450</b> คะแนน</span><span className="avatar small">{initials}</span></div>
+          <div className="top-summary"><span><b>{syncedAttemptsCount}</b> ชุดสำเร็จ</span><span><b>{formatDurationLong(totalSeconds)}</b> เวลาฝึก</span><span className="avatar small">1</span></div>
         </header>
 
         {view === "dashboard" && <div className="page dashboard-page">
           <div className="welcome">
-            <div><p>ภาพรวมการฝึก</p><h1>สวัสดี, {name}</h1><span>คุณกำลังพัฒนาได้ดี โดยเฉพาะความแม่นยำในภาษาอังกฤษ</span></div>
+            <div><p>ภาพรวมการฝึกส่วนตัว</p><h1>Dashboard สำหรับผู้เตรียมสอบคนเดียว</h1><span>สรุปจากผลที่ส่งสำเร็จและ Log รายข้อ เพื่อดูความแม่นยำ เวลา และหมวดที่ควรทบทวน</span></div>
             <button className="primary" disabled={!examReady} onClick={() => void openExam()}>{loadingQuestions ? "กำลังโหลดข้อสอบ" : "เริ่มทำข้อสอบ"} <span>→</span></button>
           </div>
 
@@ -612,18 +665,18 @@ export default function Home() {
           </section>
 
           <section className="metric-row" aria-label="สถิติสำคัญ">
-            <article><span>คะแนนเฉลี่ย</span><b>{averageAccuracy}%</b><small className="positive">คำนวณจากผลที่ส่งสำเร็จ</small></article>
-            <article><span>เวลาฝึกที่ซิงก์แล้ว</span><b>{totalSeconds ? `${(totalSeconds / 3600).toFixed(1)} ชม.` : "—"}</b><small>เวลาพักไม่นำมาคำนวณ</small></article>
+            <article><span>ความแม่นยำเฉลี่ย</span><b>{averageAccuracy}%</b><small className="positive">คำนวณจากชุดที่ส่งสำเร็จ</small></article>
+            <article><span>เวลาทำข้อสอบรวม</span><b>{formatDurationLong(totalSeconds)}</b><small>นับเฉพาะเวลาที่ Active ไม่รวมพัก</small></article>
             <article><span>ทำข้อสอบแล้ว</span><b>{syncedAttemptsCount || (backendStatus === "online" ? 0 : 24)} ชุด</b><small>{backendStatus === "online" ? "สรุปจาก Log และผลส่งสำเร็จ" : "กำลังใช้ข้อมูลตัวอย่าง"}</small></article>
-            <article><span>อันดับปัจจุบัน</span><b>{remoteLeaders.length ? `#${Math.max(1, remoteLeaders.findIndex((item) => item.display_name === name) + 1)}` : "#3"}</b><small className="positive">อันดับจากผลที่ผ่านการตรวจคะแนน</small></article>
+            <article><span>ข้อที่มี Log</span><b>{Number(dashboardSummary?.answered_logs ?? 0).toLocaleString()}</b><small className="positive">ใช้วิเคราะห์จุดแข็ง/จุดอ่อน</small></article>
           </section>
 
           <section className="insight-board" aria-label="แดชบอร์ดวิเคราะห์การฝึก">
             <article className="panel insight-hero">
               <div className="section-heading"><div><h2>Training Insight</h2><p>วิเคราะห์จาก Log รายข้อ ไม่ดึงข้อสอบทั้งหมดขึ้นหน้าเว็บ</p></div><span className={`insight-state ${hasInsightData ? "ready" : ""}`}>{hasInsightData ? "พร้อมวิเคราะห์" : "รอข้อมูล"}</span></div>
               <div className="insight-metrics">
-                <div><span>เฉลี่ยต่อข้อ</span><b>{formatDurationShort(averageQuestionSeconds)}</b><small>{insightPaceLabel}</small></div>
-                <div><span>มัธยฐานต่อข้อ</span><b>{formatDurationShort(medianQuestionSeconds)}</b><small>กันข้อที่นานผิดปกติ</small></div>
+                <div><span>ความเร็วเฉลี่ย</span><b>{formatPace(averageQuestionSeconds)}</b><small>{insightPaceLabel}</small></div>
+                <div><span>มัธยฐานความเร็ว</span><b>{formatPace(medianQuestionSeconds)}</b><small>กันข้อที่นานผิดปกติ</small></div>
                 <div><span>ข้อที่มี Log</span><b>{Number(insightOverview?.questions_seen ?? 0).toLocaleString()}</b><small>นับเฉพาะข้อที่เคยเปิดทำ</small></div>
                 <div><span>Hint ที่ใช้</span><b>{Number(insightOverview?.hint_count ?? 0)}</b><small>ช่วยดูการพึ่งตัวช่วย</small></div>
               </div>
@@ -637,9 +690,9 @@ export default function Home() {
               <div className="section-heading"><div><h2>เวลาตามวิชา</h2><p>รวมเวลาจริงจากข้อที่ Active</p></div></div>
               <div className="time-list">
                 {(subjectTimeRows.length ? subjectTimeRows : subjectMastery.map((item) => ({ subject: item.name, total_seconds: 0, avg_seconds: 0, accuracy: item.mastery, questions_seen: 0, wrong_count: 0, scored_count: 0 }))).map((item) => <div className="time-row" key={item.subject}>
-                  <div><b>{item.subject}</b><small>{item.questions_seen} ข้อ · เฉลี่ย {formatDurationShort(Number(item.avg_seconds))}</small></div>
+                  <div><b>{item.subject}</b><small>{item.questions_seen} ข้อ · เฉลี่ย {formatPace(Number(item.avg_seconds))}</small></div>
                   <div className="time-track"><i style={{ width: `${Math.max(6, (Number(item.total_seconds) / maxSubjectSeconds) * 100)}%` }} /></div>
-                  <strong>{formatDurationShort(Number(item.total_seconds))}</strong>
+                  <strong>{formatDurationLong(Number(item.total_seconds))}</strong>
                 </div>)}
               </div>
             </article>
@@ -657,7 +710,7 @@ export default function Home() {
                   return <div className="diagnosis-row" key={`${item.subject}-${item.category}`}>
                     <span><b>{item.subject}</b><small>ชุดที่ {item.category} · {item.questions_seen} ข้อ</small></span>
                     <span>{item.scored_count ? `${accuracy}%` : "—"}</span>
-                    <span>{formatDurationShort(avg)}</span>
+                    <span>{formatPace(avg)}</span>
                     <span className={item.wrong_count > 0 || avg > speedTarget ? "warn" : "ok"}>{note}</span>
                     <i style={{ width: `${Math.max(8, (avg / maxCategoryAvg) * 100)}%` }} />
                   </div>;
@@ -671,7 +724,7 @@ export default function Home() {
               <div className="watch-list">
                 {slowQuestionRows.slice(0, 5).map((item, index) => <div className="watch-item" key={item.question_id}>
                   <span>{index + 1}</span>
-                  <div><b>{item.subject} · ชุดที่ {item.category}</b><p>{item.question}</p><small>{formatDurationShort(Number(item.duration_seconds))} · {item.reason}</small></div>
+                  <div><b>{item.subject} · ชุดที่ {item.category}</b><p>{item.question}</p><small>{formatDurationLong(Number(item.duration_seconds))} · {item.reason}</small></div>
                 </div>)}
                 {!slowQuestionRows.length && <div className="table-empty">ยังไม่มีข้อที่ใช้เวลานาน ระบบจะเริ่มจัด watchlist หลังมี Log รายข้อ</div>}
               </div>
@@ -683,7 +736,7 @@ export default function Home() {
               <div className="section-heading"><div><h2>พัฒนาการคะแนน</h2><p>ค่าเฉลี่ยจากข้อสอบที่ส่งสำเร็จ</p></div><select value={range} onChange={(e) => setRange(e.target.value)} aria-label="เลือกช่วงเวลา"><option>30 วัน</option><option>90 วัน</option></select></div>
               <div className="trend-plot"><div className="axis"><span>100</span><span>75</span><span>50</span><span>25</span></div><svg viewBox="0 0 336 100" preserveAspectRatio="none" role="img" aria-label="กราฟคะแนนมีแนวโน้มสูงขึ้น"><polyline points={chartPoints} /></svg><div className="dates"><span>12 มิ.ย.</span><span>20 มิ.ย.</span><span>28 มิ.ย.</span><span>6 ก.ค.</span><span>วันนี้</span></div></div>
             </article>
-            <article className="panel next-card"><div className="section-heading"><div><h2>เป้าหมายถัดไป</h2><p>เส้นทางสู่ระดับ Diamond</p></div><span className="level-badge">Platinum III</span></div><div className="ring"><b>72%</b><span>550 คะแนน</span></div><p>รักษาความแม่นยำเฉลี่ย 85% และทำข้อสอบครบอีก 3 ชุด</p><div className="next-checks"><span className="done">✓ ฝึกต่อเนื่อง 7 วัน</span><span>○ ความแม่นยำ 85% ขึ้นไป</span><span>○ ทำครบอีก 3 ชุด</span></div></article>
+            <article className="panel next-card"><div className="section-heading"><div><h2>เป้าหมายถัดไป</h2><p>โฟกัสจากผลล่าสุด</p></div><span className="level-badge">Personal</span></div><div className="ring"><b>{averageAccuracy || 0}%</b><span>Accuracy</span></div><p>เป้าหมายที่เหมาะตอนนี้คือทำให้ครบอย่างน้อย 1 ชุด แล้วดูหมวดที่ใช้เวลานานหรือผิดซ้ำจาก Insight รายข้อ</p><div className="next-checks"><span className="done">✓ เก็บเวลาแยกรายข้อ</span><span>○ ส่งข้อสอบให้ครบทุกข้อ</span><span>○ ทบทวนหมวดที่ช้ากว่าเป้า</span></div></article>
           </section>
 
           <section className="panel mastery-card">
@@ -691,17 +744,14 @@ export default function Home() {
             <div className="subject-list">{subjectMastery.map((s) => <div className="subject-row" key={s.name}><div><b>{s.name}</b><small className="positive">{s.delta}</small></div><div className="progress"><i className={s.color} style={{ width: `${s.mastery}%` }} /></div><strong>{s.mastery}%</strong></div>)}</div>
           </section>
 
-          <section className="panel history-card"><div className="section-heading"><div><h2>ประวัติล่าสุด</h2><p>ผู้ปกครองสามารถดูความสม่ำเสมอและผลการฝึกได้จากที่นี่</p></div><button className="text-button">ดูทั้งหมด</button></div><div className="history-table"><div className="history-head"><span>วันที่</span><span>ชุดข้อสอบ</span><span>คะแนน</span><span>ความแม่นยำ</span><span>เวลาที่ใช้</span><span>สถานะ</span></div>{(remoteHistory.length ? remoteHistory : history).map((h) => <div className="history-row" key={`${h.set}-${h.date}`}><span>{h.date}</span><span><b>{h.subject}</b><small>{h.set}</small></span><span>{h.score}</span><span>{h.accuracy}</span><span>{h.time}</span><span className={h.status === "สำเร็จ" ? "status success" : "status cancelled"}>{h.status}</span></div>)}</div></section>
+          <section className="panel history-card"><div className="section-heading"><div><h2>ประวัติล่าสุด</h2><p>แสดงเฉพาะชุดที่ส่งสำเร็จ เรียงจากล่าสุดไปเก่าสุด</p></div><button className="text-button" onClick={() => setView("history")}>ดูทั้งหมด</button></div><HistoryTable rows={remoteHistory.slice(0, 5)} /></section>
 
           {backendMessage && <p className="system-note" role="status">{backendMessage}</p>}
-          <section className="profile-settings"><div><span className="avatar large">{initials}</span><div><h2>ชื่อที่ใช้แสดงคะแนน</h2><p>ชื่อนี้จะแสดงในอันดับและรายงานผล ระบบสร้างเพียงรหัสนิรนามเบื้องหลัง</p></div></div>{editingName ? <form onSubmit={(e) => { e.preventDefault(); void saveName(); }}><input autoFocus value={name} maxLength={24} minLength={2} onChange={(e) => setName(e.target.value)} aria-label="ชื่อที่ใช้แสดง"/><button className="primary" type="submit">บันทึก</button></form> : <button className="secondary" onClick={() => setEditingName(true)}>เปลี่ยนชื่อ</button>}</section>
         </div>}
 
-        {view === "ranking" && <div className="page ranking-page">
-          <div className="welcome"><div><p>อันดับประจำสัปดาห์</p><h1>ความสม่ำเสมอพาไปข้างหน้า</h1><span>คะแนนอันดับคิดจากความแม่นยำ ความเร็ว และพัฒนาการ ไม่ใช่คะแนนดิบอย่างเดียว</span></div><div className="season"><small>สิ้นสุดฤดูกาลใน</small><b>12 วัน 08:42:19</b></div></div>
-          <section className="rank-summary"><div><span>อันดับของคุณ</span><b>#3</b><small>Top 12% ของกลุ่ม</small></div><div><span>ระดับปัจจุบัน</span><b>Platinum III</b><small>อีก 550 คะแนนถึง Diamond</small></div><div><span>พัฒนาการสัปดาห์นี้</span><b className="positive">+12%</b><small>อันดับดีขึ้น 2 ตำแหน่ง</small></div></section>
-          <section className="panel leaderboard"><div className="section-heading"><div><h2>ผู้ฝึกที่โดดเด่น</h2><p>แสดงเฉพาะคะแนนที่ตรวจจากฐานข้อมูลแล้ว</p></div><span className="updated">{backendStatus === "online" ? "ข้อมูลล่าสุด" : "ข้อมูลตัวอย่าง"}</span></div><div className="leader-list">{remoteLeaders.length ? remoteLeaders.map((l, i) => { const me = l.display_name === name; return <div className={`leader-row ${me ? "me" : ""}`} key={l.public_id}><span className={`position p${i + 1}`}>{l.rank_position}</span><span className="avatar">{l.display_name.slice(0, 1).toUpperCase()}</span><span className="leader-name"><b>{l.display_name}{me && " (คุณ)"}</b><small>{i < 2 ? "Diamond" : i < 4 ? "Platinum" : "Gold"}</small></span><span className="gain">{Math.round(Number(l.accuracy_avg))}%</span><span className="leader-points"><b>{Number(l.ranking_points).toLocaleString()}</b><small>คะแนนอันดับ</small></span></div> }) : leaders.map((l, i) => <div className={`leader-row ${l.me ? "me" : ""}`} key={l.name}><span className={`position p${i + 1}`}>{i + 1}</span><span className="avatar">{l.me ? initials : l.initials}</span><span className="leader-name"><b>{l.me ? name : l.name}{l.me && " (คุณ)"}</b><small>{i < 2 ? "Diamond" : i < 4 ? "Platinum" : "Gold"}</small></span><span className="gain">{l.gain}</span><span className="leader-points"><b>{l.points}</b><small>คะแนนอันดับ</small></span></div>)}</div></section>
-          <section className="ranking-note"><h2>ระบบคิดคะแนนอย่างไร</h2><p>ระบบให้ความสำคัญกับการฝึกที่มีคุณภาพ คะแนนมาจากความแม่นยำ 40% ความเร็ว 25% การทำครบ 20% และพัฒนาการ 15% เพื่อให้ทุกคนมีโอกาสขยับอันดับได้จากการพัฒนาตัวเอง</p></section>
+        {view === "history" && <div className="page history-page">
+          <div className="welcome"><div><p>ประวัติการฝึก</p><h1>ผลสอบที่ส่งสำเร็จทั้งหมด</h1><span>เรียงจากวันล่าสุดไปเก่าสุด และไม่แสดงชุดที่ถูกยกเลิกหรือพักค้างไว้</span></div><button className="secondary" onClick={() => setView("dashboard")}>กลับภาพรวม</button></div>
+          <section className="panel history-card"><div className="section-heading"><div><h2>รายการประวัติ</h2><p>{remoteHistory.length ? `${remoteHistory.length} ชุดที่ส่งสำเร็จ` : "ยังไม่มีผลสอบที่ส่งสำเร็จ"}</p></div><span className="updated">{backendStatus === "online" ? "ข้อมูลล่าสุดจาก Supabase" : "ออฟไลน์"}</span></div><HistoryTable rows={remoteHistory} /></section>
         </div>}
 
         {view === "exam" && <div className="exam-page">
@@ -733,12 +783,20 @@ export default function Home() {
           </div>
         </div>}
 
-        <nav className="mobile-nav" aria-label="เมนูบนมือถือ"><button className={view === "dashboard" ? "active" : ""} onClick={() => setView("dashboard")}><Glyph>⌂</Glyph><span>ภาพรวม</span></button><button className={view === "ranking" ? "active" : ""} onClick={() => setView("ranking")}><Glyph>≋</Glyph><span>อันดับ</span></button><button className={view === "exam" ? "active" : ""} onClick={() => void openExam()}><Glyph>✓</Glyph><span>ข้อสอบ</span></button></nav>
+        <nav className="mobile-nav" aria-label="เมนูบนมือถือ"><button className={view === "dashboard" ? "active" : ""} onClick={() => setView("dashboard")}><Glyph>⌂</Glyph><span>ภาพรวม</span></button><button className={view === "history" ? "active" : ""} onClick={() => setView("history")}><Glyph>◷</Glyph><span>ประวัติ</span></button><button className={view === "exam" ? "active" : ""} onClick={() => void openExam()}><Glyph>✓</Glyph><span>ข้อสอบ</span></button></nav>
       </section>
 
+      {replaceOpen && pendingTest && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="replace-title"><div className="modal wide"><span className="modal-icon warning">!</span><h2 id="replace-title">เริ่มแบบทดสอบใหม่?</h2><p>หากเริ่ม <b>{pendingTest.title}</b> ระบบจะยกเลิกแบบทดสอบเดิมที่ค้างอยู่ทั้งหมด และสร้าง Test session ใหม่ทันที</p><div className="resume-summary detailed">
+        <span><small>แบบทดสอบเดิม</small><b>{activeTestTitle}</b></span>
+        <span><small>วิชา / หมวด</small><b>{selectedTest.subject} · ชุดที่ {selectedTest.category}</b></span>
+        <span><small>ทำไปแล้ว</small><b>{answeredCount}/{questions.length || selectedTest.question_count} ข้อ</b></span>
+        <span><small>เวลาทำจริง</small><b>{formatDurationLong(seconds)}</b></span>
+        <span><small>ข้อที่เคยเปิดดู</small><b>{touchedQuestions} ข้อ</b></span>
+        <span><small>เวลาเฉลี่ย</small><b>{formatPace(averageActiveQuestionSeconds)}</b></span>
+      </div><button className="primary full" onClick={() => void confirmReplaceAttempt()}>ยืนยัน เริ่มชุดใหม่และยกเลิกชุดเก่า</button><button className="danger-link neutral" onClick={() => { setPendingTest(null); setReplaceOpen(false); }}>กลับไปทำชุดเดิม</button></div></div>}
       {resumeOpen && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="resume-title"><div className="modal"><span className="modal-icon">Ⅱ</span><h2 id="resume-title">พักการทำข้อสอบแล้ว</h2><p>คำตอบและเวลาที่ทำจริง <b>{formatTime(seconds)}</b> ถูกบันทึกไว้ เวลาระหว่างพักจะไม่ถูกนำมานับ</p><div className="resume-summary"><span><small>ชุดข้อสอบ</small><b>{activeTestTitle}</b></span><span><small>ความคืบหน้า</small><b>{answeredCount}/{questions.length} ข้อ</b></span></div><button className="primary full" onClick={() => { setResumeOpen(false); setView("exam"); setRunning(true); void syncQuestionLog(current, "enter", statusFor(current)); }}>ทำข้อสอบต่อ</button><button className="danger-link" onClick={() => { void syncQuestionLog(current, "pause", "paused"); resetAttemptState(); setResumeOpen(false); setView("dashboard"); }}>ยกเลิกชุดนี้</button></div></div>}
       {submitOpen && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="submit-title"><div className="modal"><span className="modal-icon warning">!</span><h2 id="submit-title">ยังเหลือ {remaining} ข้อ</h2><p>ตรวจคำตอบให้ครบก่อนส่ง เพื่อให้ระบบวิเคราะห์ผลได้แม่นยำ</p><div className="missing-list">{questions.map((_, i) => answers[i] === undefined && <button key={i} onClick={() => { setSubmitOpen(false); goTo(i); }}>ข้อ {i + 1}</button>)}</div><button className="primary full" onClick={() => { setSubmitOpen(false); const n = questions.findIndex((_, i) => answers[i] === undefined); if (n >= 0) goTo(n); }}>ไปข้อที่ยังไม่ตอบ</button><button className="danger-link neutral" onClick={() => setSubmitOpen(false)}>กลับไปตรวจคำตอบ</button></div></div>}
-      {result && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="result-title"><div className="modal"><span className="modal-icon result">✓</span><h2 id="result-title">ตรวจคะแนนเรียบร้อย</h2><p>คุณตอบถูก <b>{result.correct_count} จาก {result.total_questions} ข้อ</b> คะแนนหลังหัก Hint <b>{Number(result.score).toFixed(1)}</b></p><div className="resume-summary"><span><small>Hint ที่ใช้</small><b>{result.hint_count} ครั้ง (-{Number(result.hint_penalty).toFixed(1)})</b></span><span><small>คะแนนอันดับ</small><b>+{result.ranking_points}</b></span></div><button className="primary full" onClick={() => { setResult(null); setView("dashboard"); }}>กลับไปดูพัฒนาการ</button></div></div>}
+      {result && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="result-title"><div className="modal"><span className="modal-icon result">✓</span><h2 id="result-title">ตรวจคะแนนเรียบร้อย</h2><p>คุณตอบถูก <b>{result.correct_count} จาก {result.total_questions} ข้อ</b> คะแนนหลังหัก Hint <b>{Number(result.score).toFixed(1)}</b></p><div className="resume-summary"><span><small>Hint ที่ใช้</small><b>{result.hint_count} ครั้ง (-{Number(result.hint_penalty).toFixed(1)})</b></span><span><small>ความแม่นยำ</small><b>{Math.round(Number(result.accuracy))}%</b></span></div><button className="primary full" onClick={() => { setResult(null); setView("dashboard"); }}>กลับไปดูพัฒนาการ</button></div></div>}
     </main>
   );
 }
