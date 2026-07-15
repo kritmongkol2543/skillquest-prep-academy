@@ -249,8 +249,8 @@ export async function startRemoteTest(categoryId: string, clientNonce: string, c
     headers: await getSessionHeaders(),
     body: { action: "start_test", category_id: categoryId, client_nonce: clientNonce, client_instance_id: clientInstanceId },
   });
-  if (error) throw error;
   if (data?.error) throw new Error(data.error);
+  if (error) throw error;
   return data?.data as StartTestResult;
 }
 
@@ -259,8 +259,8 @@ export async function heartbeatRemoteTest(testId: string, clientInstanceId: stri
     headers: await getSessionHeaders(),
     body: { action: "heartbeat_test", test_id: testId, client_instance_id: clientInstanceId },
   });
-  if (error && data?.error !== "TEST_NOT_ACTIVE") throw error;
   if (data?.error) throw new Error(data.error);
+  if (error) throw error;
   return data?.data as { test_id: string; status: "in_progress" | "paused" | "cancelled"; heartbeat_at: string | null; active?: boolean };
 }
 
@@ -279,8 +279,8 @@ export async function cancelRemoteTest(testId: string) {
     headers: await getSessionHeaders(),
     body: { action: "cancel_test", test_id: testId },
   });
-  if (error && data?.error !== "TEST_NOT_ACTIVE") throw error;
   if (data?.error) throw new Error(data.error);
+  if (error) throw error;
   return data?.data as { test_id: string; status: "cancelled"; cancelled_at?: string; already_cancelled?: boolean };
 }
 

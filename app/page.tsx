@@ -77,10 +77,15 @@ const fallbackQuestions: ExamQuestion[] = [
 
 const defaultAnswers: Record<number, number> = {};
 const defaultStates: Record<number, QuestionState> = {};
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-function readInitialNonce() {
+function createBrowserUuid() {
   if (typeof window === "undefined") return "";
   return crypto.randomUUID();
+}
+
+function isUuid(value: string | null | undefined): value is string {
+  return Boolean(value && UUID_PATTERN.test(value));
 }
 
 function readLegacySessionId() {
@@ -183,7 +188,7 @@ export default function Home() {
   const [submitOpen, setSubmitOpen] = useState(false);
   const [range, setRange] = useState("30 วัน");
   const [saved, setSaved] = useState(false);
-  const [clientNonce, setClientNonce] = useState(readInitialNonce);
+  const [clientNonce, setClientNonce] = useState("");
   const [clientInstanceId, setClientInstanceId] = useState("");
   const [legacySessionId] = useState(readLegacySessionId);
   const [backendStatus, setBackendStatus] = useState<"connecting" | "online" | "offline">("connecting");
@@ -217,6 +222,7 @@ export default function Home() {
   const questionsRef = useRef(questions);
   const selectedTestRef = useRef(selectedTest);
   const activeSessionIdRef = useRef(activeSessionId);
+  const clientNonceRef = useRef("");
   const clientInstanceIdRef = useRef("");
 
   const answeredCount = Object.keys(answers).filter((key) => Number(key) < questions.length).length;
@@ -352,10 +358,15 @@ export default function Home() {
   }, [legacySessionId]);
 
   useEffect(() => {
-    // Generate this only in the browser. Keeping it page-lifetime scoped makes
-    // a refresh a new device instance while avoiding an empty SSR initializer.
+    // Generate browser-only identifiers after hydration. A refresh becomes a
+    // new page instance, which intentionally cannot resume an old test.
+    if (!clientNonceRef.current) {
+      const nonce = createBrowserUuid();
+      clientNonceRef.current = nonce;
+      setClientNonce(nonce);
+    }
     if (!clientInstanceIdRef.current) {
-      const instanceId = readInitialNonce();
+      const instanceId = createBrowserUuid();
       clientInstanceIdRef.current = instanceId;
       setClientInstanceId(instanceId);
     }
@@ -369,7 +380,8 @@ export default function Home() {
     questionsRef.current = questions;
     selectedTestRef.current = selectedTest;
     activeSessionIdRef.current = activeSessionId;
-  }, [activeSessionId, answers, current, questionSeconds, questions, selectedTest, states]);
+    if (clientNonce) clientNonceRef.current = clientNonce;
+  }, [activeSessionId, answers, clientNonce, current, questionSeconds, questions, selectedTest, states]);
 
   useEffect(() => {
     if (!running) return;
@@ -388,13 +400,13 @@ export default function Home() {
   }, [pauseStartedAt, resumeOpen]);
 
   useEffect(() => {
-    if (!running || backendStatus !== "online" || !clientNonce) return;
+    if (!running || backendStatus !== "online" || !clientNonceRef.current) return;
     const heartbeat = window.setInterval(() => {
       void syncQuestionLog(currentRef.current, "heartbeat");
     }, 8000);
     return () => window.clearInterval(heartbeat);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [backendStatus, clientNonce, running]);
+  }, [backendStatus, running]);
 
   useEffect(() => {
     const sessionId = activeSessionId;
@@ -489,15 +501,30 @@ export default function Home() {
     return "viewed";
   }
 
+  function ensureClientNonce(forcedNonce?: string) {
+    const nextNonce = isUuid(forcedNonce) ? forcedNonce : isUuid(clientNonceRef.current) ? clientNonceRef.current : createBrowserUuid();
+    clientNonceRef.current = nextNonce;
+    setClientNonce(nextNonce);
+    return nextNonce;
+  }
+
+  function ensureClientInstance() {
+    const instanceId = isUuid(clientInstanceIdRef.current) ? clientInstanceIdRef.current : createBrowserUuid();
+    clientInstanceIdRef.current = instanceId;
+    setClientInstanceId(instanceId);
+    return instanceId;
+  }
+
   async function syncQuestionLog(index: number, eventType: QuestionLogEvent, status?: QuestionLogStatus, quiet = true) {
     const activeQuestions = questionsRef.current;
     const sessionId = activeSessionIdRef.current;
-    if (backendStatus !== "online" || !clientNonce || !activeQuestions[index] || !sessionId) return;
+    const nonce = clientNonceRef.current;
+    if (backendStatus !== "online" || !isUuid(nonce) || !activeQuestions[index] || !sessionId) return;
     try {
       await logQuestionActivity({
         set_id: sessionId,
         question_id: activeQuestions[index].id,
-        client_nonce: clientNonce,
+        client_nonce: nonce,
         event_type: eventType,
         duration_seconds: questionSecondsRef.current[index] ?? 0,
         selected_choice: answersRef.current[index] ?? null,
@@ -509,17 +536,20 @@ export default function Home() {
   }
 
   async function syncAllQuestionLogs(eventType: QuestionLogEvent) {
-    if (backendStatus !== "online" || !clientNonce) return;
+    if (backendStatus !== "online" || !isUuid(clientNonceRef.current)) return;
     await Promise.all(questions.map((_, index) => syncQuestionLog(index, eventType, index === currentRef.current ? "submitted" : statusFor(index))));
   }
 
   async function startFreshExam(test: RemoteTest, nonce: string) {
     const categoryId = test.category_id || test.test_id;
-    const instanceId = clientInstanceIdRef.current || readInitialNonce();
-    clientInstanceIdRef.current = instanceId;
-    if (!clientInstanceId) setClientInstanceId(instanceId);
+    const nextNonce = ensureClientNonce(nonce);
+    const instanceId = ensureClientInstance();
+    if (!isUuid(categoryId)) {
+      setBackendMessage("ข้อมูลชุดข้อสอบไม่ครบ กรุณาเลือกวิชาและชุดข้อสอบใหม่อีกครั้ง");
+      return false;
+    }
     try {
-      const started = await startRemoteTest(categoryId, nonce, instanceId);
+      const started = await startRemoteTest(categoryId, nextNonce, instanceId);
       if ("active_test" in started) {
         setActiveTestLock(started.active_test);
         return false;
@@ -539,8 +569,11 @@ export default function Home() {
       setRunning(true);
       window.setTimeout(() => void syncQuestionLog(0, "enter", "viewed"), 0);
       return true;
-    } catch {
-      setBackendMessage("เริ่มทำข้อสอบไม่สำเร็จ กรุณาลองใหม่อีกครั้ง");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      if (message === "INVALID_TEST") setBackendMessage("ชุดข้อสอบนี้เริ่มไม่ได้ กรุณาเลือกชุดอื่นหรือรีเฟรชรายการข้อสอบ");
+      else if (message === "AUTH_REQUIRED" || message === "INVALID_SESSION") setBackendMessage("เซสชันหมดอายุ กรุณารีเฟรชหน้าเว็บหนึ่งครั้งแล้วเริ่มใหม่");
+      else setBackendMessage("เริ่มทำข้อสอบไม่สำเร็จ กรุณาลองใหม่อีกครั้ง");
       return false;
     }
   }
@@ -560,7 +593,7 @@ export default function Home() {
   }
 
   async function confirmStartExam() {
-    const nextNonce = crypto.randomUUID();
+    const nextNonce = ensureClientNonce(createBrowserUuid());
     setStarting(true);
     try {
       resetAttemptState(true, nextNonce);
@@ -673,7 +706,7 @@ export default function Home() {
     setRunning(false);
     if (activeSessionIdRef.current) await cancelRemoteTest(activeSessionIdRef.current);
     const nextTest = pendingTest;
-    const nextNonce = crypto.randomUUID();
+    const nextNonce = ensureClientNonce(createBrowserUuid());
     resetAttemptState(true, nextNonce);
     setPendingTest(null);
     setReplaceOpen(false);
@@ -694,10 +727,9 @@ export default function Home() {
     window.setTimeout(() => void syncQuestionLog(current, "answer", changed ? "changed_answer" : "answered"), 0);
   }
   function resetAttemptState(clearResult = true, forcedNonce?: string) {
-    const nextNonce = forcedNonce ?? crypto.randomUUID();
+    const nextNonce = ensureClientNonce(forcedNonce);
     localStorage.removeItem("skillquest-attempt");
     localStorage.removeItem("skillquest-attempt-nonce");
-    setClientNonce(nextNonce);
     setActiveSessionId("");
     activeSessionIdRef.current = "";
     setLoadedTestId("");
@@ -713,7 +745,8 @@ export default function Home() {
     if (clearResult) setResult(null);
   }
   async function handleHint() {
-    if (backendStatus !== "online" || !clientNonce) {
+    const nonce = clientNonceRef.current;
+    if (backendStatus !== "online" || !isUuid(nonce)) {
       setBackendMessage("Hint ต้องเชื่อมต่อฐานข้อมูลก่อน เพื่อจำกัดสิทธิ์ 2 ครั้งต่อชุดข้อสอบ");
       return;
     }
@@ -731,7 +764,7 @@ export default function Home() {
       const hint = await requestRemoteHint({
         set_id: activeTestId,
         question_id: questions[current].id,
-        client_nonce: clientNonce,
+        client_nonce: nonce,
         duration_seconds: questionSecondsRef.current[current] ?? 0,
       });
       setHints((prev) => ({ ...prev, [current]: [...(prev[current] ?? []), hint] }));
@@ -746,7 +779,8 @@ export default function Home() {
   }
   async function handleSubmit() {
     if (remaining > 0) { setSubmitOpen(true); return; }
-    if (backendStatus !== "online" || !clientNonce) {
+    const nonce = clientNonceRef.current;
+    if (backendStatus !== "online" || !isUuid(nonce)) {
       setBackendMessage("ยังส่งผลไม่ได้ในขณะออฟไลน์ คำตอบถูกเก็บไว้ในเครื่องแล้ว");
       return;
     }
@@ -754,7 +788,7 @@ export default function Home() {
     try {
       await syncAllQuestionLogs("submit");
       const keyedAnswers = Object.fromEntries(Object.entries(answers).map(([index, choice]) => [questions[Number(index)].id, choice]));
-      const submitted = await submitRemoteAttempt({ set_id: activeTestId, answers: keyedAnswers, elapsed_seconds: Math.max(30, seconds), client_nonce: clientNonce });
+      const submitted = await submitRemoteAttempt({ set_id: activeTestId, answers: keyedAnswers, elapsed_seconds: Math.max(30, seconds), client_nonce: nonce });
       setResult(submitted);
       const [attemptRows, summary, insights] = await Promise.all([loadRemoteAttempts(), loadDashboardSummary(), loadLearningInsights()]);
       setRemoteAttempts(attemptRows);

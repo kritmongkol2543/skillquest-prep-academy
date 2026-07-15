@@ -3,6 +3,7 @@ import { createClient } from "npm:@supabase/supabase-js@2.110.2";
 
 const ALLOWED_SITES_ORIGIN = "https://skillquest-player-hub.kritmongkol2543.chatgpt.site";
 const MAX_BODY_BYTES = 32_768;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function isAllowedOrigin(origin: string | null) {
   if (!origin) return true;
@@ -26,6 +27,20 @@ function json(origin: string | null, body: unknown, status = 200) {
     status,
     headers: { ...corsHeaders(origin), "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" },
   });
+}
+
+function isUuid(value: unknown): value is string {
+  return typeof value === "string" && UUID_PATTERN.test(value);
+}
+
+function rpcErrorCode(message: string) {
+  if (message.includes("CATEGORY_NOT_AVAILABLE") || message.includes("SET_NOT_AVAILABLE")) return "TEST_NOT_AVAILABLE";
+  if (message.includes("INVALID_CLIENT_NONCE")) return "INVALID_CLIENT_NONCE";
+  if (message.includes("INVALID_CLIENT_INSTANCE")) return "INVALID_CLIENT_INSTANCE";
+  if (message.includes("INVALID_CATEGORY")) return "INVALID_CATEGORY";
+  if (message.includes("INVALID_USER")) return "INVALID_USER";
+  if (message.includes("INVALID_")) return "INVALID_REQUEST";
+  return null;
 }
 
 Deno.serve(async (request: Request) => {
@@ -84,7 +99,9 @@ Deno.serve(async (request: Request) => {
     const categoryId = body.category_id;
     const clientNonce = body.client_nonce;
     const clientInstanceId = body.client_instance_id;
-    if (typeof categoryId !== "string" || typeof clientNonce !== "string" || typeof clientInstanceId !== "string") return json(origin, { error: "INVALID_TEST" }, 400);
+    if (!isUuid(categoryId)) return json(origin, { error: "INVALID_CATEGORY" }, 400);
+    if (!isUuid(clientNonce)) return json(origin, { error: "INVALID_CLIENT_NONCE" }, 400);
+    if (!isUuid(clientInstanceId)) return json(origin, { error: "INVALID_CLIENT_INSTANCE" }, 400);
     const { data, error } = await admin.rpc("start_test_service", {
       p_user_id: authData.user.id,
       p_category_id: categoryId,
@@ -93,7 +110,8 @@ Deno.serve(async (request: Request) => {
     });
     if (error) {
       const message = error.message ?? "";
-      if (message.includes("INVALID_") || message.includes("NOT_AVAILABLE")) return json(origin, { error: "INVALID_TEST" }, 400);
+      const code = rpcErrorCode(message);
+      if (code) return json(origin, { error: code }, 400);
       return json(origin, { error: "TEST_START_FAILED" }, 503);
     }
     return json(origin, { data });
@@ -102,7 +120,7 @@ Deno.serve(async (request: Request) => {
   if (body.action === "heartbeat_test") {
     const testId = body.test_id;
     const clientInstanceId = body.client_instance_id;
-    if (typeof testId !== "string" || typeof clientInstanceId !== "string") return json(origin, { error: "INVALID_TEST" }, 400);
+    if (!isUuid(testId) || !isUuid(clientInstanceId)) return json(origin, { error: "INVALID_TEST" }, 400);
     const { data, error } = await admin.rpc("heartbeat_test_service", {
       p_user_id: authData.user.id,
       p_test_id: testId,
@@ -120,7 +138,7 @@ Deno.serve(async (request: Request) => {
 
   if (body.action === "get_test") {
     const testId = body.test_id;
-    if (typeof testId !== "string") return json(origin, { error: "INVALID_TEST" }, 400);
+    if (!isUuid(testId)) return json(origin, { error: "INVALID_TEST" }, 400);
     const { data, error } = await admin.rpc("get_test_questions_service", {
       p_user_id: authData.user.id,
       p_test_id: testId,
@@ -132,7 +150,7 @@ Deno.serve(async (request: Request) => {
 
   if (body.action === "pause_test") {
     const testId = body.test_id;
-    if (typeof testId !== "string") return json(origin, { error: "INVALID_TEST" }, 400);
+    if (!isUuid(testId)) return json(origin, { error: "INVALID_TEST" }, 400);
     const { data, error } = await admin.rpc("pause_test_service", {
       p_user_id: authData.user.id,
       p_test_id: testId,
@@ -143,7 +161,7 @@ Deno.serve(async (request: Request) => {
 
   if (body.action === "cancel_test") {
     const testId = body.test_id;
-    if (typeof testId !== "string") return json(origin, { error: "INVALID_TEST" }, 400);
+    if (!isUuid(testId)) return json(origin, { error: "INVALID_TEST" }, 400);
     const { data, error } = await admin.rpc("cancel_test_service", {
       p_user_id: authData.user.id,
       p_test_id: testId,
@@ -199,7 +217,7 @@ Deno.serve(async (request: Request) => {
     const durationSeconds = payload.duration_seconds;
     const selectedChoice = payload.selected_choice;
     if (
-      typeof setId !== "string" || typeof questionId !== "string" || typeof clientNonce !== "string" ||
+      !isUuid(setId) || !isUuid(questionId) || !isUuid(clientNonce) ||
       typeof eventType !== "string" || typeof status !== "string" ||
       typeof durationSeconds !== "number" || !Number.isInteger(durationSeconds) ||
       (selectedChoice !== null && selectedChoice !== undefined && (typeof selectedChoice !== "number" || !Number.isInteger(selectedChoice)))
@@ -233,7 +251,7 @@ Deno.serve(async (request: Request) => {
     const clientNonce = payload.client_nonce;
     const durationSeconds = payload.duration_seconds;
     if (
-      typeof setId !== "string" || typeof questionId !== "string" || typeof clientNonce !== "string" ||
+      !isUuid(setId) || !isUuid(questionId) || !isUuid(clientNonce) ||
       typeof durationSeconds !== "number" || !Number.isInteger(durationSeconds)
     ) return json(origin, { error: "INVALID_HINT" }, 400);
 
@@ -263,7 +281,7 @@ Deno.serve(async (request: Request) => {
     const elapsedSeconds = payload.elapsed_seconds;
     const clientNonce = payload.client_nonce;
     if (
-      typeof setId !== "string" || typeof clientNonce !== "string" ||
+      !isUuid(setId) || !isUuid(clientNonce) ||
       typeof elapsedSeconds !== "number" || !Number.isInteger(elapsedSeconds) ||
       !answers || typeof answers !== "object" || Array.isArray(answers)
     ) return json(origin, { error: "INVALID_ATTEMPT" }, 400);
