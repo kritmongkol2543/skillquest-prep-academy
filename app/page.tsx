@@ -11,10 +11,12 @@ import {
   loadRemoteTests,
   requestRemoteHint,
   cancelRemoteTest,
+  cancelRemoteTestOnPageExit,
   pauseRemoteTest,
   startRemoteTest,
   submitRemoteAttempt,
   type AttemptResult,
+  type ActiveTestLock,
   type DashboardSummary,
   type HintResult,
   type LearningInsights,
@@ -75,40 +77,18 @@ const fallbackQuestions: ExamQuestion[] = [
 const defaultAnswers: Record<number, number> = {};
 const defaultStates: Record<number, QuestionState> = {};
 
-type SavedAttempt = {
-  answers?: Record<number, number>;
-  states?: Record<number, QuestionState>;
-  current?: number;
-  seconds?: number;
-  questionSeconds?: Record<number, number>;
-  hints?: Record<number, HintResult[]>;
-  status?: "in_progress" | "paused";
-  testId?: string;
-  categoryId?: string;
-  sessionId?: string;
-  pauseStartedAt?: string;
-};
-
-let cachedSavedAttempt: SavedAttempt | null | undefined;
-
-function readSavedAttempt() {
-  if (cachedSavedAttempt !== undefined) return cachedSavedAttempt;
-  if (typeof window === "undefined") {
-    cachedSavedAttempt = null;
-    return cachedSavedAttempt;
-  }
-  try {
-    const raw = localStorage.getItem("skillquest-attempt");
-    cachedSavedAttempt = raw ? JSON.parse(raw) as SavedAttempt : null;
-  } catch {
-    cachedSavedAttempt = null;
-  }
-  return cachedSavedAttempt;
-}
-
 function readInitialNonce() {
   if (typeof window === "undefined") return "";
-  return localStorage.getItem("skillquest-attempt-nonce") ?? crypto.randomUUID();
+  return crypto.randomUUID();
+}
+
+function readLegacySessionId() {
+  if (typeof window === "undefined") return "";
+  try {
+    return (JSON.parse(localStorage.getItem("skillquest-attempt") ?? "{}") as { sessionId?: string }).sessionId ?? "";
+  } catch {
+    return "";
+  }
 }
 
 function formatTime(total: number) {
@@ -191,24 +171,25 @@ function HistoryTable({ rows }: { rows: HistoryRow[] }) {
 
 export default function Home() {
   const [view, setView] = useState<View>("dashboard");
-  const [current, setCurrent] = useState(() => readSavedAttempt()?.current ?? 0);
-  const [answers, setAnswers] = useState<Record<number, number>>(() => readSavedAttempt()?.answers ?? defaultAnswers);
-  const [states, setStates] = useState<Record<number, QuestionState>>(() => readSavedAttempt()?.states ?? defaultStates);
-  const [seconds, setSeconds] = useState(() => readSavedAttempt()?.seconds ?? 0);
+  const [current, setCurrent] = useState(0);
+  const [answers, setAnswers] = useState<Record<number, number>>(defaultAnswers);
+  const [states, setStates] = useState<Record<number, QuestionState>>(defaultStates);
+  const [seconds, setSeconds] = useState(0);
   const [running, setRunning] = useState(false);
-  const [resumeOpen, setResumeOpen] = useState(() => Boolean(readSavedAttempt()?.sessionId));
-  const [pauseStartedAt, setPauseStartedAt] = useState(() => readSavedAttempt()?.pauseStartedAt ?? "");
+  const [resumeOpen, setResumeOpen] = useState(false);
+  const [pauseStartedAt, setPauseStartedAt] = useState("");
   const [pausedNow, setPausedNow] = useState(() => Date.now());
   const [submitOpen, setSubmitOpen] = useState(false);
   const [range, setRange] = useState("30 วัน");
   const [saved, setSaved] = useState(false);
   const [clientNonce, setClientNonce] = useState(readInitialNonce);
+  const [legacySessionId] = useState(readLegacySessionId);
   const [backendStatus, setBackendStatus] = useState<"connecting" | "online" | "offline">("connecting");
   const [backendMessage, setBackendMessage] = useState("");
   const [remoteAttempts, setRemoteAttempts] = useState<RemoteAttempt[]>([]);
   const [testOptions, setTestOptions] = useState<RemoteTest[]>([]);
   const [selectedTest, setSelectedTest] = useState<RemoteTest>(fallbackTest);
-  const [activeSessionId, setActiveSessionId] = useState(() => readSavedAttempt()?.sessionId ?? "");
+  const [activeSessionId, setActiveSessionId] = useState("");
   const [pendingTest, setPendingTest] = useState<RemoteTest | null>(null);
   const [replaceOpen, setReplaceOpen] = useState(false);
   const [startOpen, setStartOpen] = useState(false);
@@ -216,6 +197,8 @@ export default function Home() {
   const [cancelOpen, setCancelOpen] = useState(false);
   const [navigationTarget, setNavigationTarget] = useState<View | null>(null);
   const [cancelling, setCancelling] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const [activeTestLock, setActiveTestLock] = useState<ActiveTestLock | null>(null);
   const [questions, setQuestions] = useState<ExamQuestion[]>([]);
   const [loadedTestId, setLoadedTestId] = useState("");
   const [loadingQuestions, setLoadingQuestions] = useState(false);
@@ -223,8 +206,8 @@ export default function Home() {
   const [learningInsights, setLearningInsights] = useState<LearningInsights | null>(null);
   const [result, setResult] = useState<AttemptResult | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [questionSeconds, setQuestionSeconds] = useState<Record<number, number>>(() => readSavedAttempt()?.questionSeconds ?? {});
-  const [hints, setHints] = useState<Record<number, HintResult[]>>(() => readSavedAttempt()?.hints ?? {});
+  const [questionSeconds, setQuestionSeconds] = useState<Record<number, number>>({});
+  const [hints, setHints] = useState<Record<number, HintResult[]>>({});
   const [hinting, setHinting] = useState(false);
   const currentRef = useRef(current);
   const answersRef = useRef(answers);
@@ -338,13 +321,17 @@ export default function Home() {
     void (async () => {
       try {
         await ensureAnonymousSession("ผู้ใช้งานหลัก");
+        // Attempt recovery was deliberately removed: a refresh/close ends a test.
+        // Cancel a session created by older versions once the authenticated client is ready.
+        localStorage.removeItem("skillquest-attempt");
+        localStorage.removeItem("skillquest-attempt-nonce");
+        if (legacySessionId) await cancelRemoteTest(legacySessionId).catch(() => undefined);
         const [attemptRows, testRows, summary, insights] = await Promise.all([loadRemoteAttempts(), loadRemoteTests(), loadDashboardSummary(), loadLearningInsights()]);
         setRemoteAttempts(attemptRows);
         setDashboardSummary(summary);
         setLearningInsights(insights);
         setTestOptions(testRows);
-        const savedCategoryId = readSavedAttempt()?.categoryId ?? readSavedAttempt()?.testId;
-        const nextTest = testRows.find((test) => (test.category_id || test.test_id) === savedCategoryId) ?? testRows[0];
+        const nextTest = testRows[0];
         if (nextTest) {
           setSelectedTest(nextTest);
           setQuestions([]);
@@ -360,7 +347,7 @@ export default function Home() {
           : "ใช้งานแบบออฟไลน์ ข้อมูลในเครื่องยังปลอดภัย");
       }
     })();
-  }, []);
+  }, [legacySessionId]);
 
   useEffect(() => {
     currentRef.current = current;
@@ -398,41 +385,24 @@ export default function Home() {
   }, [backendStatus, clientNonce, running]);
 
   useEffect(() => {
-    const persistPausedExit = () => {
+    const cancelOnPageExit = () => {
       const sessionId = activeSessionIdRef.current;
-      if (!sessionId) return;
-      const pausedAt = new Date().toISOString();
-      try {
-        const prior = JSON.parse(localStorage.getItem("skillquest-attempt") ?? "{}") as SavedAttempt;
-        localStorage.setItem("skillquest-attempt", JSON.stringify({ ...prior, sessionId, status: "paused", pauseStartedAt: pausedAt }));
-      } catch {
-        // Local recovery is best-effort; the active session remains on the server.
-      }
-      if (backendStatus === "online") void pauseRemoteTest(sessionId).catch(() => undefined);
+      localStorage.removeItem("skillquest-attempt");
+      localStorage.removeItem("skillquest-attempt-nonce");
+      if (sessionId) cancelRemoteTestOnPageExit(sessionId);
     };
-    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-      if (!running) return;
-      event.preventDefault();
-      event.returnValue = "";
-    };
-    window.addEventListener("beforeunload", handleBeforeUnload);
-    window.addEventListener("pagehide", persistPausedExit);
-    return () => {
-      window.removeEventListener("beforeunload", handleBeforeUnload);
-      window.removeEventListener("pagehide", persistPausedExit);
-    };
-  }, [backendStatus, running]);
+    window.addEventListener("pagehide", cancelOnPageExit);
+    return () => window.removeEventListener("pagehide", cancelOnPageExit);
+  }, []);
 
   useEffect(() => {
-    if (clientNonce) localStorage.setItem("skillquest-attempt-nonce", clientNonce);
-    localStorage.setItem("skillquest-attempt", JSON.stringify({ answers, states, current, seconds, questionSeconds, hints, testId: activeTestId, categoryId: selectedCategoryId, sessionId: activeSessionId, status: running ? "in_progress" : "paused", pauseStartedAt }));
     const showTimer = window.setTimeout(() => setSaved(true), 0);
     const hideTimer = window.setTimeout(() => setSaved(false), 900);
     return () => {
       window.clearTimeout(showTimer);
       window.clearTimeout(hideTimer);
     };
-  }, [activeTestId, activeSessionId, answers, states, current, seconds, questionSeconds, hints, running, clientNonce, selectedCategoryId, pauseStartedAt]);
+  }, [activeSessionId, answers, states, current, seconds, questionSeconds, hints, running]);
 
   const chartPoints = useMemo(() => range === "30 วัน" ? "0,86 48,67 96,72 144,38 192,52 240,24 288,35 336,12" : "0,78 48,72 96,50 144,63 192,34 240,44 288,18 336,26", [range]);
   const averageAccuracy = dashboardSummary ? Math.round(Number(dashboardSummary.average_accuracy)) : remoteAttempts.length ? Math.round(remoteAttempts.reduce((sum, item) => sum + Number(item.accuracy), 0) / remoteAttempts.length) : 82;
@@ -507,12 +477,21 @@ export default function Home() {
     const categoryId = test.category_id || test.test_id;
     try {
       const started = await startRemoteTest(categoryId, nonce);
+      if ("active_test" in started) {
+        setActiveTestLock(started.active_test);
+        return false;
+      }
       setActiveSessionId(started.test_id);
       activeSessionIdRef.current = started.test_id;
       setSelectedTest(started);
       selectedTestRef.current = started;
       const ok = await loadExamTest(started.test_id);
-      if (!ok && backendStatus === "online") return false;
+      if (!ok && backendStatus === "online") {
+        await cancelRemoteTest(started.test_id).catch(() => undefined);
+        resetAttemptState(true);
+        setBackendMessage("โหลดข้อสอบไม่สำเร็จ ระบบยกเลิกรอบนี้แล้ว ลองเริ่มใหม่ได้ทันที");
+        return false;
+      }
       setView("exam");
       setRunning(true);
       window.setTimeout(() => void syncQuestionLog(0, "enter", "viewed"), 0);
@@ -529,18 +508,24 @@ export default function Home() {
       return;
     }
     const sessionId = activeSessionIdRef.current;
-    if (!sessionId) {
-      setStartOpen(true);
+    if (sessionId) {
+      setNavigationTarget("dashboard");
+      setLeaveOpen(true);
       return;
     }
-    void openExam();
+    setStartOpen(true);
   }
 
   async function confirmStartExam() {
     const nextNonce = crypto.randomUUID();
-    setStartOpen(false);
-    resetAttemptState(true, nextNonce);
-    await startFreshExam(selectedTestRef.current, nextNonce);
+    setStarting(true);
+    try {
+      resetAttemptState(true, nextNonce);
+      const started = await startFreshExam(selectedTestRef.current, nextNonce);
+      if (started) setStartOpen(false);
+    } finally {
+      setStarting(false);
+    }
   }
 
   async function openExam() {
@@ -599,12 +584,17 @@ export default function Home() {
     setView(nextView);
   }
 
+  function openCatalog() {
+    requestNavigation("dashboard");
+  }
+
   async function cancelAttempt() {
     const destination = navigationTarget ?? "dashboard";
     setCancelling(true);
     try {
-      await syncQuestionLog(currentRef.current, "pause", "paused", false);
-      if (backendStatus === "online" && activeSessionIdRef.current) await cancelRemoteTest(activeSessionIdRef.current);
+      const sessionId = activeSessionIdRef.current;
+      if (sessionId && backendStatus !== "online") throw new Error("OFFLINE");
+      if (sessionId) await cancelRemoteTest(sessionId);
       resetAttemptState();
       setRunning(false);
       setPauseStartedAt("");
@@ -615,7 +605,7 @@ export default function Home() {
       setView(destination);
       setBackendMessage("");
     } catch {
-      setBackendMessage("ยกเลิกข้อสอบไม่สำเร็จ กรุณาตรวจสอบการเชื่อมต่อแล้วลองอีกครั้ง");
+      setBackendMessage("ยกเลิกข้อสอบยังไม่สำเร็จ ระบบคงรอบเดิมไว้เพื่อไม่ให้ข้อมูลสูญหาย กรุณาตรวจสอบการเชื่อมต่อแล้วลองอีกครั้ง");
     } finally {
       setCancelling(false);
     }
@@ -624,9 +614,7 @@ export default function Home() {
   async function confirmReplaceAttempt() {
     if (!pendingTest) return;
     setRunning(false);
-    if (activeSessionIdRef.current) {
-      await cancelRemoteTest(activeSessionIdRef.current).catch(() => undefined);
-    }
+    if (activeSessionIdRef.current) await cancelRemoteTest(activeSessionIdRef.current);
     const nextTest = pendingTest;
     const nextNonce = crypto.randomUUID();
     resetAttemptState(true, nextNonce);
@@ -651,7 +639,7 @@ export default function Home() {
   function resetAttemptState(clearResult = true, forcedNonce?: string) {
     const nextNonce = forcedNonce ?? crypto.randomUUID();
     localStorage.removeItem("skillquest-attempt");
-    localStorage.setItem("skillquest-attempt-nonce", nextNonce);
+    localStorage.removeItem("skillquest-attempt-nonce");
     setClientNonce(nextNonce);
     setActiveSessionId("");
     activeSessionIdRef.current = "";
@@ -663,6 +651,8 @@ export default function Home() {
     setQuestionSeconds({});
     setHints({});
     setPauseStartedAt("");
+    setResumeOpen(false);
+    setRunning(false);
     if (clearResult) setResult(null);
   }
   async function handleHint() {
@@ -729,7 +719,7 @@ export default function Home() {
         <nav aria-label="เมนูหลัก">
           <button className={view === "dashboard" ? "active" : ""} onClick={() => requestNavigation("dashboard")}><Glyph>⌂</Glyph>ภาพรวม</button>
           <button className={view === "history" ? "active" : ""} onClick={() => requestNavigation("history")}><Glyph>◷</Glyph>ประวัติการฝึก</button>
-          <button className={view === "exam" ? "active" : ""} onClick={() => void requestStartExam()}><Glyph>✓</Glyph>คลังข้อสอบ</button>
+          <button className={view === "exam" ? "active" : ""} onClick={openCatalog}><Glyph>✓</Glyph>คลังข้อสอบ</button>
         </nav>
         <div className="side-note"><span>เป้าหมายสัปดาห์นี้</span><b>4 จาก 5 ชุด</b><div className="progress"><i style={{ width: "80%" }} /></div><small>เหลืออีก 1 ชุด</small></div>
         <div className="user-chip"><span className="avatar">1</span><div><b>โหมดผู้ใช้เดียว</b><small>ใช้งานได้ทันที</small></div></div>
@@ -857,7 +847,7 @@ export default function Home() {
             <div className="subject-list">{subjectMastery.map((s) => <div className="subject-row" key={s.name}><div><b>{s.name}</b><small className="positive">{s.delta}</small></div><div className="progress"><i className={s.color} style={{ width: `${s.mastery}%` }} /></div><strong>{s.mastery}%</strong></div>)}</div>
           </section>
 
-          <section className="panel history-card"><div className="section-heading"><div><h2>ประวัติล่าสุด</h2><p>แสดงเฉพาะชุดที่ส่งสำเร็จ เรียงจากล่าสุดไปเก่าสุด</p></div><button className="text-button" onClick={() => setView("history")}>ดูทั้งหมด</button></div><HistoryTable rows={remoteHistory.slice(0, 5)} /></section>
+          <section className="panel history-card"><div className="section-heading"><div><h2>ประวัติล่าสุด</h2><p>แสดงเฉพาะชุดที่ส่งสำเร็จ เรียงจากล่าสุดไปเก่าสุด</p></div><button className="text-button" onClick={() => requestNavigation("history")}>ดูทั้งหมด</button></div><HistoryTable rows={remoteHistory.slice(0, 5)} /></section>
 
           {backendMessage && <p className="system-note" role="status">{backendMessage}</p>}
         </div>}
@@ -896,7 +886,7 @@ export default function Home() {
           </div>
         </div>}
 
-        <nav className="mobile-nav" aria-label="เมนูบนมือถือ"><button className={view === "dashboard" ? "active" : ""} onClick={() => requestNavigation("dashboard")}><Glyph>⌂</Glyph><span>ภาพรวม</span></button><button className={view === "history" ? "active" : ""} onClick={() => requestNavigation("history")}><Glyph>◷</Glyph><span>ประวัติ</span></button><button className={view === "exam" ? "active" : ""} onClick={() => void requestStartExam()}><Glyph>✓</Glyph><span>ข้อสอบ</span></button></nav>
+        <nav className="mobile-nav" aria-label="เมนูบนมือถือ"><button className={view === "dashboard" ? "active" : ""} onClick={() => requestNavigation("dashboard")}><Glyph>⌂</Glyph><span>ภาพรวม</span></button><button className={view === "history" ? "active" : ""} onClick={() => requestNavigation("history")}><Glyph>◷</Glyph><span>ประวัติ</span></button><button className={view === "exam" ? "active" : ""} onClick={openCatalog}><Glyph>✓</Glyph><span>ข้อสอบ</span></button></nav>
       </section>
 
       {startOpen && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="start-title"><div className="modal wide"><span className="modal-icon start">→</span><h2 id="start-title">พร้อมเริ่มทำข้อสอบหรือยัง?</h2><p>เมื่อยืนยัน ระบบจะสร้างรอบทำข้อสอบใหม่และเริ่มนับเวลาทันที</p><div className="resume-summary detailed">
@@ -904,7 +894,7 @@ export default function Home() {
         <span><small>วิชา / หมวด</small><b>{selectedTest.subject} · ชุดที่ {selectedTest.category}</b></span>
         <span><small>จำนวนข้อ</small><b>{selectedTest.question_count} ข้อ</b></span>
         <span><small>เวลาแนะนำ</small><b>{formatDurationLong(selectedTest.duration)}</b></span>
-      </div><button className="primary full" onClick={() => void confirmStartExam()}>ยืนยัน เริ่มทำข้อสอบ</button><button className="danger-link neutral" onClick={() => setStartOpen(false)}>กลับไปเลือกชุดข้อสอบ</button></div></div>}
+      </div><button className="primary full" disabled={starting} onClick={() => void confirmStartExam()}>{starting ? "กำลังตรวจสอบสถานะ…" : "ยืนยัน เริ่มทำข้อสอบ"}</button><button className="danger-link neutral" disabled={starting} onClick={() => setStartOpen(false)}>กลับไปเลือกชุดข้อสอบ</button></div></div>}
       {replaceOpen && pendingTest && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="replace-title"><div className="modal wide"><span className="modal-icon warning">!</span><h2 id="replace-title">เริ่มแบบทดสอบใหม่?</h2><p>หากเริ่ม <b>{pendingTest.title}</b> ระบบจะยกเลิกแบบทดสอบเดิมที่ค้างอยู่ทั้งหมด และสร้าง Test session ใหม่ทันที</p><div className="resume-summary detailed">
         <span><small>แบบทดสอบเดิม</small><b>{activeTestTitle}</b></span>
         <span><small>วิชา / หมวด</small><b>{selectedTest.subject} · ชุดที่ {selectedTest.category}</b></span>
@@ -916,6 +906,7 @@ export default function Home() {
       {leaveOpen && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="leave-title"><div className="modal wide"><span className="modal-icon warning">!</span><h2 id="leave-title">กำลังทำข้อสอบอยู่</h2><p>หากออกจากหน้านี้ ต้องเลือกว่าจะกลับไปทำต่อ หรือยกเลิกแบบทดสอบนี้ก่อน</p><div className="resume-summary detailed"><span><small>ชุดข้อสอบ</small><b>{activeTestTitle}</b></span><span><small>ความคืบหน้า</small><b>{answeredCount}/{questions.length} ข้อ</b></span><span><small>เวลาที่ทำจริง</small><b>{formatDurationLong(seconds)}</b></span><span><small>เวลาต่อข้อเฉลี่ย</small><b>{formatPace(averageActiveQuestionSeconds)}</b></span></div><button className="primary full" onClick={() => { setLeaveOpen(false); setNavigationTarget(null); }}>ทำข้อสอบต่อ</button><button className="danger-link" onClick={() => { setLeaveOpen(false); setCancelOpen(true); }}>ยกเลิกแบบทดสอบ</button></div></div>}
       {resumeOpen && !cancelOpen && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="resume-title"><div className="modal wide pause-modal"><span className="modal-icon">Ⅱ</span><h2 id="resume-title">พักการทำข้อสอบแล้ว</h2><p>คำตอบและเวลาที่ทำจริงถูกบันทึกไว้แล้ว ช่วงเวลาพักจะไม่ถูกนำไปคิดในผลการฝึก</p><div className="pause-duration"><small>พักมาแล้ว</small><b>{formatDurationLong(pauseSeconds)}</b><span>เริ่มพักใหม่ทุกครั้งที่กดพักข้อสอบ</span></div><div className="resume-summary detailed"><span><small>ชุดข้อสอบ</small><b>{activeTestTitle}</b></span><span><small>ความคืบหน้า</small><b>{answeredCount}/{questions.length} ข้อ</b></span><span><small>เวลาที่ทำจริง</small><b>{formatDurationLong(seconds)}</b></span><span><small>เวลาต่อข้อเฉลี่ย</small><b>{formatPace(averageActiveQuestionSeconds)}</b></span></div><button className="primary full" onClick={resumeExam}>ทำข้อสอบต่อ</button><button className="danger-link" onClick={() => { setNavigationTarget("dashboard"); setCancelOpen(true); }}>ยกเลิกแบบทดสอบ</button></div></div>}
       {cancelOpen && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="cancel-title"><div className="modal wide"><span className="modal-icon warning">!</span><h2 id="cancel-title">ยกเลิกแบบทดสอบนี้?</h2><p>คำตอบและ Log ของรอบนี้จะไม่ถูกนำไปเป็นผลสอบหรือประวัติการฝึก และจะเริ่มต่อจากจุดเดิมไม่ได้</p><div className="resume-summary detailed"><span><small>ชุดข้อสอบ</small><b>{activeTestTitle}</b></span><span><small>ทำไปแล้ว</small><b>{answeredCount}/{questions.length} ข้อ</b></span><span><small>เวลาที่ทำจริง</small><b>{formatDurationLong(seconds)}</b></span><span><small>ข้อที่เคยเปิดดู</small><b>{touchedQuestions} ข้อ</b></span></div><button className="danger-button full" disabled={cancelling} onClick={() => void cancelAttempt()}>{cancelling ? "กำลังยกเลิก…" : "ยืนยัน ยกเลิกแบบทดสอบ"}</button><button className="danger-link neutral" disabled={cancelling} onClick={() => { setCancelOpen(false); if (!resumeOpen) setLeaveOpen(true); }}>กลับไปทำข้อสอบต่อ</button></div></div>}
+      {activeTestLock && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="lock-title"><div className="modal wide lock-modal"><span className="modal-icon warning">!</span><p className="modal-kicker">ระบบใช้ได้ทีละคน</p><h2 id="lock-title">มีคนกำลังทำข้อสอบอยู่</h2><p>ยังเริ่มชุดใหม่ไม่ได้จนกว่ารอบที่กำลังทำอยู่จะส่งผลหรือถูกยกเลิก</p><div className="resume-summary detailed"><span><small>วิชา / ชุด</small><b>{activeTestLock.title}</b></span><span><small>สถานะ</small><b>{activeTestLock.status === "paused" ? "พักข้อสอบ" : "กำลังทำข้อสอบ"}</b></span><span><small>ทำไปแล้ว</small><b>{activeTestLock.answered_count}/{activeTestLock.total_questions} ข้อ</b></span><span><small>เวลาที่ใช้</small><b>{formatDurationLong(activeTestLock.elapsed_seconds)}</b></span></div><button className="primary full" onClick={() => { setActiveTestLock(null); void confirmStartExam(); }}>ตรวจสอบอีกครั้ง</button><button className="danger-link neutral" onClick={() => { setActiveTestLock(null); setStartOpen(false); }}>กลับไปเลือกชุดข้อสอบ</button></div></div>}
       {submitOpen && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="submit-title"><div className="modal"><span className="modal-icon warning">!</span><h2 id="submit-title">ยังเหลือ {remaining} ข้อ</h2><p>ตรวจคำตอบให้ครบก่อนส่ง เพื่อให้ระบบวิเคราะห์ผลได้แม่นยำ</p><div className="missing-list">{questions.map((_, i) => answers[i] === undefined && <button key={i} onClick={() => { setSubmitOpen(false); goTo(i); }}>ข้อ {i + 1}</button>)}</div><button className="primary full" onClick={() => { setSubmitOpen(false); const n = questions.findIndex((_, i) => answers[i] === undefined); if (n >= 0) goTo(n); }}>ไปข้อที่ยังไม่ตอบ</button><button className="danger-link neutral" onClick={() => setSubmitOpen(false)}>กลับไปตรวจคำตอบ</button></div></div>}
       {result && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="result-title"><div className="modal"><span className="modal-icon result">✓</span><h2 id="result-title">ตรวจคะแนนเรียบร้อย</h2><p>คุณตอบถูก <b>{result.correct_count} จาก {result.total_questions} ข้อ</b> คะแนนหลังหัก Hint <b>{Number(result.score).toFixed(1)}</b></p><div className="resume-summary"><span><small>Hint ที่ใช้</small><b>{result.hint_count} ครั้ง (-{Number(result.hint_penalty).toFixed(1)})</b></span><span><small>ความแม่นยำ</small><b>{Math.round(Number(result.accuracy))}%</b></span></div><button className="primary full" onClick={() => { setResult(null); setView("dashboard"); }}>กลับไปดูพัฒนาการ</button></div></div>}
     </main>

@@ -127,7 +127,11 @@ Deno.serve(async (request: Request) => {
       p_user_id: authData.user.id,
       p_test_id: testId,
     });
-    if (error) return json(origin, { error: "CANCEL_FAILED" }, 503);
+    if (error) {
+      const message = error.message ?? "";
+      if (message.includes("SET_NOT_AVAILABLE") || message.includes("SET_NOT_ACTIVE")) return json(origin, { error: "TEST_NOT_ACTIVE" }, 409);
+      return json(origin, { error: "CANCEL_FAILED" }, 503);
+    }
     return json(origin, { data });
   }
 

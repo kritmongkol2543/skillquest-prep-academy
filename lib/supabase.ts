@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "https://pttsjpmwvppkaacgzdqh.supabase.co";
 const supabasePublishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? "sb_publishable_zb5948wh4FMpMYOyqB3O0w_KT05tg-W";
+let cachedUnloadHeaders: Record<string, string> | null = null;
 
 export const supabase = createClient(supabaseUrl, supabasePublishableKey, {
   auth: {
@@ -57,6 +58,24 @@ export type RemoteQuestion = {
 export type RemoteTestPayload = {
   test: RemoteTest;
   questions: RemoteQuestion[];
+};
+
+export type ActiveTestLock = {
+  test_id: string;
+  title: string;
+  subject: string;
+  category: string;
+  status: "in_progress" | "paused";
+  started_at: string;
+  elapsed_seconds: number;
+  answered_count: number;
+  touched_questions: number;
+  total_questions: number;
+};
+
+export type StartTestResult = RemoteTest | {
+  blocked: true;
+  active_test: ActiveTestLock;
 };
 
 export type DashboardSubjectSummary = {
@@ -173,6 +192,10 @@ export async function ensureAnonymousSession(displayName: string) {
     session = signedIn.data.session;
   }
   if (!session?.user) throw new Error("SESSION_UNAVAILABLE");
+  cachedUnloadHeaders = {
+    Authorization: `Bearer ${session.access_token}`,
+    apikey: supabasePublishableKey,
+  };
   localStorage.setItem("skillquest-name", displayName.trim().slice(0, 24) || "ผู้เตรียมสอบ");
   return session.user;
 }
@@ -182,10 +205,12 @@ async function getSessionHeaders() {
   if (error) throw error;
   if (!session?.access_token) throw new Error("AUTH_REQUIRED");
 
-  return {
+  const headers = {
     Authorization: `Bearer ${session.access_token}`,
     apikey: supabasePublishableKey,
   };
+  cachedUnloadHeaders = headers;
+  return headers;
 }
 
 export async function saveRemoteProfile(displayName: string) {
@@ -226,7 +251,7 @@ export async function startRemoteTest(categoryId: string, clientNonce: string) {
   });
   if (error) throw error;
   if (data?.error) throw new Error(data.error);
-  return data?.data as RemoteTest;
+  return data?.data as StartTestResult;
 }
 
 export async function pauseRemoteTest(testId: string) {
@@ -247,6 +272,20 @@ export async function cancelRemoteTest(testId: string) {
   if (error) throw error;
   if (data?.error) throw new Error(data.error);
   return data?.data as { test_id: string; status: "cancelled"; cancelled_at: string };
+}
+
+/**
+ * Requests cancellation as the page is being replaced or closed. The request is
+ * intentionally fire-and-forget: unload handlers cannot await network work.
+ */
+export function cancelRemoteTestOnPageExit(testId: string) {
+  if (!testId || !cachedUnloadHeaders || typeof window === "undefined") return;
+  void fetch(`${supabaseUrl}/functions/v1/skillquest-api`, {
+    method: "POST",
+    headers: { ...cachedUnloadHeaders, "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "cancel_test", test_id: testId }),
+    keepalive: true,
+  }).catch(() => undefined);
 }
 
 export async function loadRemoteAttempts() {

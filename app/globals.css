@@ -272,8 +272,8 @@ h1, h2, p { text-wrap: pretty; }
 .exam-footer { display: flex; align-items: center; gap: 10px; margin-top: 16px; }
 .exam-footer .skip { margin-left: auto; min-height: 44px; border: 0; background: transparent; color: var(--orange); cursor: pointer; }
 
-.modal-backdrop { position: fixed; inset: 0; z-index: 100; padding: 20px; display: grid; place-items: center; background: #14283fcf; backdrop-filter: blur(5px); }
-.modal { width: min(420px, 100%); padding: 30px; border-radius: 14px; background: #fff; text-align: center; }
+.modal-backdrop { position: fixed; inset: 0; z-index: 100; padding: 20px; display: grid; place-items: center; background: #14283fcf; backdrop-filter: blur(5px); animation: overlay-in 180ms var(--ease); }
+.modal { width: min(420px, 100%); padding: 30px; border-radius: 14px; background: #fff; text-align: center; animation: modal-in 220ms var(--ease); }
 .modal.wide { width: min(560px, 100%); }
 .modal-icon { width: 48px; height: 48px; margin: 0 auto 18px; display: grid; place-items: center; border-radius: 50%; background: #eaf0f4; color: var(--navy); font-weight: 800; }
 .modal-icon.warning { background: #f8eee6; color: var(--orange); }
@@ -281,6 +281,8 @@ h1, h2, p { text-wrap: pretty; }
 .modal-icon.result { background: var(--green-soft); color: var(--green); }
 .modal h2 { margin: 0 0 7px; color: var(--navy); font-size: 22px; }
 .modal > p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.65; }
+.modal-kicker { margin: 0 0 7px !important; color: var(--orange) !important; font-size: 11px !important; font-weight: 800; letter-spacing: .04em; }
+.lock-modal .resume-summary span:first-child { grid-column: 1 / -1; }
 .resume-summary { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 20px 0; text-align: left; }
 .resume-summary.detailed { grid-template-columns: 1fr 1fr; }
 .resume-summary span { padding: 12px; display: grid; border-radius: 9px; background: var(--soft); }
@@ -298,6 +300,9 @@ h1, h2, p { text-wrap: pretty; }
 .missing-list { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin: 18px 0; }
 .missing-list button { border: 1px solid #e3c3a8; border-radius: 7px; padding: 6px 9px; background: #fbf4ee; color: #98551f; cursor: pointer; }
 .mobile-nav { display: none; }
+
+@keyframes overlay-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes modal-in { from { opacity: 0; transform: translateY(10px) scale(.985); } to { opacity: 1; transform: translateY(0) scale(1); } }
 
 @media (max-width: 1050px) {
   :root { --sidebar: 210px; }
