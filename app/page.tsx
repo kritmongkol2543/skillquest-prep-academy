@@ -184,7 +184,7 @@ export default function Home() {
   const [range, setRange] = useState("30 วัน");
   const [saved, setSaved] = useState(false);
   const [clientNonce, setClientNonce] = useState(readInitialNonce);
-  const [clientInstanceId] = useState(readInitialNonce);
+  const [clientInstanceId, setClientInstanceId] = useState("");
   const [legacySessionId] = useState(readLegacySessionId);
   const [backendStatus, setBackendStatus] = useState<"connecting" | "online" | "offline">("connecting");
   const [backendMessage, setBackendMessage] = useState("");
@@ -217,6 +217,7 @@ export default function Home() {
   const questionsRef = useRef(questions);
   const selectedTestRef = useRef(selectedTest);
   const activeSessionIdRef = useRef(activeSessionId);
+  const clientInstanceIdRef = useRef("");
 
   const answeredCount = Object.keys(answers).filter((key) => Number(key) < questions.length).length;
   const remaining = questions.length - answeredCount;
@@ -349,6 +350,16 @@ export default function Home() {
       }
     })();
   }, [legacySessionId]);
+
+  useEffect(() => {
+    // Generate this only in the browser. Keeping it page-lifetime scoped makes
+    // a refresh a new device instance while avoiding an empty SSR initializer.
+    if (!clientInstanceIdRef.current) {
+      const instanceId = readInitialNonce();
+      clientInstanceIdRef.current = instanceId;
+      setClientInstanceId(instanceId);
+    }
+  }, []);
 
   useEffect(() => {
     currentRef.current = current;
@@ -504,8 +515,11 @@ export default function Home() {
 
   async function startFreshExam(test: RemoteTest, nonce: string) {
     const categoryId = test.category_id || test.test_id;
+    const instanceId = clientInstanceIdRef.current || readInitialNonce();
+    clientInstanceIdRef.current = instanceId;
+    if (!clientInstanceId) setClientInstanceId(instanceId);
     try {
-      const started = await startRemoteTest(categoryId, nonce, clientInstanceId);
+      const started = await startRemoteTest(categoryId, nonce, instanceId);
       if ("active_test" in started) {
         setActiveTestLock(started.active_test);
         return false;
