@@ -190,7 +190,6 @@ export default function Home() {
   const [saved, setSaved] = useState(false);
   const [clientNonce, setClientNonce] = useState("");
   const [clientInstanceId, setClientInstanceId] = useState("");
-  const [legacySessionId] = useState(readLegacySessionId);
   const [backendStatus, setBackendStatus] = useState<"connecting" | "online" | "offline">("connecting");
   const [backendMessage, setBackendMessage] = useState("");
   const [remoteAttempts, setRemoteAttempts] = useState<RemoteAttempt[]>([]);
@@ -328,6 +327,7 @@ export default function Home() {
   useEffect(() => {
     void (async () => {
       try {
+        const legacySessionId = readLegacySessionId();
         await ensureAnonymousSession("ผู้ใช้งานหลัก");
         // Attempt recovery was deliberately removed: a refresh/close ends a test.
         // Cancel a session created by older versions once the authenticated client is ready.
@@ -355,7 +355,7 @@ export default function Home() {
           : "ใช้งานแบบออฟไลน์ ข้อมูลในเครื่องยังปลอดภัย");
       }
     })();
-  }, [legacySessionId]);
+  }, []);
 
   useEffect(() => {
     // Generate browser-only identifiers after hydration. A refresh becomes a
