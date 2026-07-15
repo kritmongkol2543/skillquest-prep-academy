@@ -82,6 +82,7 @@ const fallbackQuestions: ExamQuestion[] = [
 const defaultAnswers: Record<number, number> = {};
 const defaultStates: Record<number, QuestionState> = {};
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const CATEGORY_LEVEL_ORDER = ["basic", "normal", "intermediate", "advanced", "expert", "master"] as const;
 
 function createBrowserUuid() {
   if (typeof window === "undefined") return "";
@@ -99,6 +100,23 @@ function readLegacySessionId() {
   } catch {
     return "";
   }
+}
+
+function categoryLevelRank(category: string) {
+  const normalized = category.toLowerCase();
+  const rank = CATEGORY_LEVEL_ORDER.findIndex((level) => normalized.includes(level));
+  return rank === -1 ? CATEGORY_LEVEL_ORDER.length : rank;
+}
+
+function compareCategoryOptions(a: RemoteTest, b: RemoteTest) {
+  const rankDiff = categoryLevelRank(a.category) - categoryLevelRank(b.category);
+  if (rankDiff !== 0) return rankDiff;
+
+  const numberA = Number((a.category.match(/\d+(?:\.\d+)?/) ?? [Number.POSITIVE_INFINITY])[0]);
+  const numberB = Number((b.category.match(/\d+(?:\.\d+)?/) ?? [Number.POSITIVE_INFINITY])[0]);
+  if (numberA !== numberB) return numberA - numberB;
+
+  return a.category.localeCompare(b.category, "th");
 }
 
 function formatTime(total: number) {
@@ -247,7 +265,10 @@ export default function Home() {
   const examReady = Boolean(selectedCategoryId) && !loadingQuestions;
   const activeSubject = selectedTest.subject;
   const subjectOptions = Array.from(new Set((testOptions.length ? testOptions : [fallbackTest]).map((test) => test.subject)));
-  const categoryOptions = (testOptions.length ? testOptions : [fallbackTest]).filter((test) => test.subject === activeSubject);
+  const categoryOptions = (testOptions.length ? testOptions : [fallbackTest])
+    .filter((test) => test.subject === activeSubject)
+    .slice()
+    .sort(compareCategoryOptions);
   const touchedQuestions = questions.reduce((count, _, index) => (
     questionSeconds[index] > 0 || answers[index] !== undefined || states[index] !== undefined ? count + 1 : count
   ), 0);
@@ -325,7 +346,10 @@ export default function Home() {
   }
 
   function chooseSubjectOption(subject: string) {
-    const nextTest = (testOptions.length ? testOptions : [fallbackTest]).find((test) => test.subject === subject);
+    const nextTest = (testOptions.length ? testOptions : [fallbackTest])
+      .filter((test) => test.subject === subject)
+      .slice()
+      .sort(compareCategoryOptions)[0];
     if (nextTest) chooseTestOption(nextTest.test_id);
   }
 
@@ -344,7 +368,7 @@ export default function Home() {
         setDashboardSummary(summary);
         setLearningInsights(insights);
         setTestOptions(testRows);
-        const nextTest = testRows[0];
+        const nextTest = testRows.slice().sort((a, b) => a.subject.localeCompare(b.subject, "th") || compareCategoryOptions(a, b))[0];
         if (nextTest) {
           setSelectedTest(nextTest);
           setQuestions([]);
