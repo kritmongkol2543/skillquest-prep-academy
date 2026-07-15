@@ -244,14 +244,24 @@ export async function loadRemoteTest(testId: string) {
   return data?.data as RemoteTestPayload;
 }
 
-export async function startRemoteTest(categoryId: string, clientNonce: string) {
+export async function startRemoteTest(categoryId: string, clientNonce: string, clientInstanceId: string) {
   const { data, error } = await supabase.functions.invoke("skillquest-api", {
     headers: await getSessionHeaders(),
-    body: { action: "start_test", category_id: categoryId, client_nonce: clientNonce },
+    body: { action: "start_test", category_id: categoryId, client_nonce: clientNonce, client_instance_id: clientInstanceId },
   });
   if (error) throw error;
   if (data?.error) throw new Error(data.error);
   return data?.data as StartTestResult;
+}
+
+export async function heartbeatRemoteTest(testId: string, clientInstanceId: string) {
+  const { data, error } = await supabase.functions.invoke("skillquest-api", {
+    headers: await getSessionHeaders(),
+    body: { action: "heartbeat_test", test_id: testId, client_instance_id: clientInstanceId },
+  });
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+  return data?.data as { test_id: string; status: "in_progress" | "paused"; heartbeat_at: string };
 }
 
 export async function pauseRemoteTest(testId: string) {

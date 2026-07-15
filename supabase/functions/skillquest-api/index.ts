@@ -83,16 +83,35 @@ Deno.serve(async (request: Request) => {
   if (body.action === "start_test") {
     const categoryId = body.category_id;
     const clientNonce = body.client_nonce;
-    if (typeof categoryId !== "string" || typeof clientNonce !== "string") return json(origin, { error: "INVALID_TEST" }, 400);
+    const clientInstanceId = body.client_instance_id;
+    if (typeof categoryId !== "string" || typeof clientNonce !== "string" || typeof clientInstanceId !== "string") return json(origin, { error: "INVALID_TEST" }, 400);
     const { data, error } = await admin.rpc("start_test_service", {
       p_user_id: authData.user.id,
       p_category_id: categoryId,
       p_client_nonce: clientNonce,
+      p_client_instance_id: clientInstanceId,
     });
     if (error) {
       const message = error.message ?? "";
       if (message.includes("INVALID_") || message.includes("NOT_AVAILABLE")) return json(origin, { error: "INVALID_TEST" }, 400);
       return json(origin, { error: "TEST_START_FAILED" }, 503);
+    }
+    return json(origin, { data });
+  }
+
+  if (body.action === "heartbeat_test") {
+    const testId = body.test_id;
+    const clientInstanceId = body.client_instance_id;
+    if (typeof testId !== "string" || typeof clientInstanceId !== "string") return json(origin, { error: "INVALID_TEST" }, 400);
+    const { data, error } = await admin.rpc("heartbeat_test_service", {
+      p_user_id: authData.user.id,
+      p_test_id: testId,
+      p_client_instance_id: clientInstanceId,
+    });
+    if (error) {
+      const message = error.message ?? "";
+      if (message.includes("SET_NOT_ACTIVE") || message.includes("SET_NOT_AVAILABLE")) return json(origin, { error: "TEST_NOT_ACTIVE" }, 409);
+      return json(origin, { error: "HEARTBEAT_FAILED" }, 503);
     }
     return json(origin, { data });
   }

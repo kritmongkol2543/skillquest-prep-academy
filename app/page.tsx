@@ -12,6 +12,7 @@ import {
   requestRemoteHint,
   cancelRemoteTest,
   cancelRemoteTestOnPageExit,
+  heartbeatRemoteTest,
   pauseRemoteTest,
   startRemoteTest,
   submitRemoteAttempt,
@@ -183,6 +184,7 @@ export default function Home() {
   const [range, setRange] = useState("30 วัน");
   const [saved, setSaved] = useState(false);
   const [clientNonce, setClientNonce] = useState(readInitialNonce);
+  const [clientInstanceId] = useState(readInitialNonce);
   const [legacySessionId] = useState(readLegacySessionId);
   const [backendStatus, setBackendStatus] = useState<"connecting" | "online" | "offline">("connecting");
   const [backendMessage, setBackendMessage] = useState("");
@@ -193,7 +195,6 @@ export default function Home() {
   const [pendingTest, setPendingTest] = useState<RemoteTest | null>(null);
   const [replaceOpen, setReplaceOpen] = useState(false);
   const [startOpen, setStartOpen] = useState(false);
-  const [leaveOpen, setLeaveOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [navigationTarget, setNavigationTarget] = useState<View | null>(null);
   const [cancelling, setCancelling] = useState(false);
@@ -385,6 +386,29 @@ export default function Home() {
   }, [backendStatus, clientNonce, running]);
 
   useEffect(() => {
+    const sessionId = activeSessionId;
+    if (!sessionId || backendStatus !== "online" || !clientInstanceId) return;
+    let disposed = false;
+    const sendHeartbeat = async () => {
+      try {
+        await heartbeatRemoteTest(sessionId, clientInstanceId);
+      } catch (error) {
+        if (disposed) return;
+        if (error instanceof Error && error.message === "TEST_NOT_ACTIVE") {
+          resetAttemptState();
+          setView("dashboard");
+          setBackendMessage("รอบทำข้อสอบนี้สิ้นสุดแล้ว จึงไม่สามารถทำต่อได้");
+        }
+      }
+    };
+    void sendHeartbeat();
+    const heartbeat = window.setInterval(() => void sendHeartbeat(), 30_000);
+    return () => { disposed = true; window.clearInterval(heartbeat); };
+    // The instance ID is intentionally page-lifetime only: a refresh starts a new page and ends its old test.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSessionId, backendStatus, clientInstanceId]);
+
+  useEffect(() => {
     const cancelOnPageExit = () => {
       const sessionId = activeSessionIdRef.current;
       localStorage.removeItem("skillquest-attempt");
@@ -476,7 +500,7 @@ export default function Home() {
   async function startFreshExam(test: RemoteTest, nonce: string) {
     const categoryId = test.category_id || test.test_id;
     try {
-      const started = await startRemoteTest(categoryId, nonce);
+      const started = await startRemoteTest(categoryId, nonce, clientInstanceId);
       if ("active_test" in started) {
         setActiveTestLock(started.active_test);
         return false;
@@ -510,7 +534,7 @@ export default function Home() {
     const sessionId = activeSessionIdRef.current;
     if (sessionId) {
       setNavigationTarget("dashboard");
-      setLeaveOpen(true);
+      if (running) void pauseExam(); else setResumeOpen(true);
       return;
     }
     setStartOpen(true);
@@ -569,6 +593,7 @@ export default function Home() {
   function resumeExam() {
     setPauseStartedAt("");
     setResumeOpen(false);
+    setNavigationTarget(null);
     setView("exam");
     setRunning(true);
     void syncQuestionLog(currentRef.current, "enter", statusFor(currentRef.current), false);
@@ -578,7 +603,7 @@ export default function Home() {
     if (nextView === view) return;
     if (view === "exam" && activeSessionIdRef.current) {
       setNavigationTarget(nextView);
-      setLeaveOpen(true);
+      if (running) void pauseExam(); else setResumeOpen(true);
       return;
     }
     setView(nextView);
@@ -600,7 +625,6 @@ export default function Home() {
       setPauseStartedAt("");
       setResumeOpen(false);
       setCancelOpen(false);
-      setLeaveOpen(false);
       setNavigationTarget(null);
       setView(destination);
       setBackendMessage("");
@@ -903,9 +927,8 @@ export default function Home() {
         <span><small>ข้อที่เคยเปิดดู</small><b>{touchedQuestions} ข้อ</b></span>
         <span><small>เวลาเฉลี่ย</small><b>{formatPace(averageActiveQuestionSeconds)}</b></span>
       </div><button className="primary full" onClick={() => void confirmReplaceAttempt()}>ยืนยัน เริ่มชุดใหม่และยกเลิกชุดเก่า</button><button className="danger-link neutral" onClick={() => { setPendingTest(null); setReplaceOpen(false); }}>กลับไปทำชุดเดิม</button></div></div>}
-      {leaveOpen && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="leave-title"><div className="modal wide"><span className="modal-icon warning">!</span><h2 id="leave-title">กำลังทำข้อสอบอยู่</h2><p>หากออกจากหน้านี้ ต้องเลือกว่าจะกลับไปทำต่อ หรือยกเลิกแบบทดสอบนี้ก่อน</p><div className="resume-summary detailed"><span><small>ชุดข้อสอบ</small><b>{activeTestTitle}</b></span><span><small>ความคืบหน้า</small><b>{answeredCount}/{questions.length} ข้อ</b></span><span><small>เวลาที่ทำจริง</small><b>{formatDurationLong(seconds)}</b></span><span><small>เวลาต่อข้อเฉลี่ย</small><b>{formatPace(averageActiveQuestionSeconds)}</b></span></div><button className="primary full" onClick={() => { setLeaveOpen(false); setNavigationTarget(null); }}>ทำข้อสอบต่อ</button><button className="danger-link" onClick={() => { setLeaveOpen(false); setCancelOpen(true); }}>ยกเลิกแบบทดสอบ</button></div></div>}
-      {resumeOpen && !cancelOpen && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="resume-title"><div className="modal wide pause-modal"><span className="modal-icon">Ⅱ</span><h2 id="resume-title">พักการทำข้อสอบแล้ว</h2><p>คำตอบและเวลาที่ทำจริงถูกบันทึกไว้แล้ว ช่วงเวลาพักจะไม่ถูกนำไปคิดในผลการฝึก</p><div className="pause-duration"><small>พักมาแล้ว</small><b>{formatDurationLong(pauseSeconds)}</b><span>เริ่มพักใหม่ทุกครั้งที่กดพักข้อสอบ</span></div><div className="resume-summary detailed"><span><small>ชุดข้อสอบ</small><b>{activeTestTitle}</b></span><span><small>ความคืบหน้า</small><b>{answeredCount}/{questions.length} ข้อ</b></span><span><small>เวลาที่ทำจริง</small><b>{formatDurationLong(seconds)}</b></span><span><small>เวลาต่อข้อเฉลี่ย</small><b>{formatPace(averageActiveQuestionSeconds)}</b></span></div><button className="primary full" onClick={resumeExam}>ทำข้อสอบต่อ</button><button className="danger-link" onClick={() => { setNavigationTarget("dashboard"); setCancelOpen(true); }}>ยกเลิกแบบทดสอบ</button></div></div>}
-      {cancelOpen && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="cancel-title"><div className="modal wide"><span className="modal-icon warning">!</span><h2 id="cancel-title">ยกเลิกแบบทดสอบนี้?</h2><p>คำตอบและ Log ของรอบนี้จะไม่ถูกนำไปเป็นผลสอบหรือประวัติการฝึก และจะเริ่มต่อจากจุดเดิมไม่ได้</p><div className="resume-summary detailed"><span><small>ชุดข้อสอบ</small><b>{activeTestTitle}</b></span><span><small>ทำไปแล้ว</small><b>{answeredCount}/{questions.length} ข้อ</b></span><span><small>เวลาที่ทำจริง</small><b>{formatDurationLong(seconds)}</b></span><span><small>ข้อที่เคยเปิดดู</small><b>{touchedQuestions} ข้อ</b></span></div><button className="danger-button full" disabled={cancelling} onClick={() => void cancelAttempt()}>{cancelling ? "กำลังยกเลิก…" : "ยืนยัน ยกเลิกแบบทดสอบ"}</button><button className="danger-link neutral" disabled={cancelling} onClick={() => { setCancelOpen(false); if (!resumeOpen) setLeaveOpen(true); }}>กลับไปทำข้อสอบต่อ</button></div></div>}
+      {resumeOpen && !cancelOpen && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="resume-title"><div className="modal wide pause-modal"><span className="modal-icon">Ⅱ</span><h2 id="resume-title">พักการทำข้อสอบแล้ว</h2><p>เวลาทำจริงหยุดนับแล้ว คุณสามารถพักหรือสลับแท็บได้ แต่ต้องเปิดหน้านี้ค้างไว้เพื่อรักษารอบทำข้อสอบ</p><div className="pause-duration"><small>พักมาแล้ว</small><b>{formatDurationLong(pauseSeconds)}</b><span>เริ่มพักใหม่ทุกครั้งที่กดพักข้อสอบ</span></div><div className="resume-summary detailed"><span><small>ชุดข้อสอบ</small><b>{activeTestTitle}</b></span><span><small>ความคืบหน้า</small><b>{answeredCount}/{questions.length} ข้อ</b></span><span><small>เวลาที่ทำจริง</small><b>{formatDurationLong(seconds)}</b></span><span><small>เวลาต่อข้อเฉลี่ย</small><b>{formatPace(averageActiveQuestionSeconds)}</b></span></div><button className="primary full" onClick={resumeExam}>ทำข้อสอบต่อ</button><button className="danger-link" onClick={() => setCancelOpen(true)}>ยกเลิกแบบทดสอบ</button></div></div>}
+      {cancelOpen && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="cancel-title"><div className="modal wide"><span className="modal-icon warning">!</span><h2 id="cancel-title">ยกเลิกแบบทดสอบนี้?</h2><p>คำตอบและ Log ของรอบนี้จะไม่ถูกนำไปเป็นผลสอบหรือประวัติการฝึก และจะเริ่มต่อจากจุดเดิมไม่ได้</p><div className="resume-summary detailed"><span><small>ชุดข้อสอบ</small><b>{activeTestTitle}</b></span><span><small>ทำไปแล้ว</small><b>{answeredCount}/{questions.length} ข้อ</b></span><span><small>เวลาที่ทำจริง</small><b>{formatDurationLong(seconds)}</b></span><span><small>ข้อที่เคยเปิดดู</small><b>{touchedQuestions} ข้อ</b></span></div><button className="danger-button full" disabled={cancelling} onClick={() => void cancelAttempt()}>{cancelling ? "กำลังยกเลิก…" : "ยืนยัน ยกเลิกแบบทดสอบ"}</button><button className="danger-link neutral" disabled={cancelling} onClick={() => setCancelOpen(false)}>กลับไปทำข้อสอบต่อ</button></div></div>}
       {activeTestLock && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="lock-title"><div className="modal wide lock-modal"><span className="modal-icon warning">!</span><p className="modal-kicker">ระบบใช้ได้ทีละคน</p><h2 id="lock-title">มีคนกำลังทำข้อสอบอยู่</h2><p>ยังเริ่มชุดใหม่ไม่ได้จนกว่ารอบที่กำลังทำอยู่จะส่งผลหรือถูกยกเลิก</p><div className="resume-summary detailed"><span><small>วิชา / ชุด</small><b>{activeTestLock.title}</b></span><span><small>สถานะ</small><b>{activeTestLock.status === "paused" ? "พักข้อสอบ" : "กำลังทำข้อสอบ"}</b></span><span><small>ทำไปแล้ว</small><b>{activeTestLock.answered_count}/{activeTestLock.total_questions} ข้อ</b></span><span><small>เวลาที่ใช้</small><b>{formatDurationLong(activeTestLock.elapsed_seconds)}</b></span></div><button className="primary full" onClick={() => { setActiveTestLock(null); void confirmStartExam(); }}>ตรวจสอบอีกครั้ง</button><button className="danger-link neutral" onClick={() => { setActiveTestLock(null); setStartOpen(false); }}>กลับไปเลือกชุดข้อสอบ</button></div></div>}
       {submitOpen && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="submit-title"><div className="modal"><span className="modal-icon warning">!</span><h2 id="submit-title">ยังเหลือ {remaining} ข้อ</h2><p>ตรวจคำตอบให้ครบก่อนส่ง เพื่อให้ระบบวิเคราะห์ผลได้แม่นยำ</p><div className="missing-list">{questions.map((_, i) => answers[i] === undefined && <button key={i} onClick={() => { setSubmitOpen(false); goTo(i); }}>ข้อ {i + 1}</button>)}</div><button className="primary full" onClick={() => { setSubmitOpen(false); const n = questions.findIndex((_, i) => answers[i] === undefined); if (n >= 0) goTo(n); }}>ไปข้อที่ยังไม่ตอบ</button><button className="danger-link neutral" onClick={() => setSubmitOpen(false)}>กลับไปตรวจคำตอบ</button></div></div>}
       {result && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="result-title"><div className="modal"><span className="modal-icon result">✓</span><h2 id="result-title">ตรวจคะแนนเรียบร้อย</h2><p>คุณตอบถูก <b>{result.correct_count} จาก {result.total_questions} ข้อ</b> คะแนนหลังหัก Hint <b>{Number(result.score).toFixed(1)}</b></p><div className="resume-summary"><span><small>Hint ที่ใช้</small><b>{result.hint_count} ครั้ง (-{Number(result.hint_penalty).toFixed(1)})</b></span><span><small>ความแม่นยำ</small><b>{Math.round(Number(result.accuracy))}%</b></span></div><button className="primary full" onClick={() => { setResult(null); setView("dashboard"); }}>กลับไปดูพัฒนาการ</button></div></div>}
