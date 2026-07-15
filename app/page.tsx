@@ -37,6 +37,7 @@ type ExamQuestion = {
   id: string;
   q: string;
   choices: string[];
+  choiceIndexes: number[];
   choiceImageIds: (string | null)[];
   choiceImages: (string | null)[];
   subject: string;
@@ -66,16 +67,16 @@ const fallbackTest: RemoteTest = {
   question_count: 10,
 };
 const fallbackQuestions: ExamQuestion[] = [
-  { id: "20000000-0000-4000-8000-000000000001", q: "ถ้า 3x + 7 = 22 แล้ว x มีค่าเท่าใด?", choices: ["3", "5", "7", "9"], choiceImageIds: [null, null, null, null], choiceImages: [null, null, null, null], subject: "คณิตศาสตร์", category: "พีชคณิต", level: "ระดับพื้นฐาน", image: null },
-  { id: "20000000-0000-4000-8000-000000000002", q: "จำนวนใดเป็นจำนวนเฉพาะ?", choices: ["21", "27", "29", "33"], choiceImageIds: [null, null, null, null], choiceImages: [null, null, null, null], subject: "คณิตศาสตร์", category: "จำนวน", level: "ระดับพื้นฐาน", image: null },
-  { id: "20000000-0000-4000-8000-000000000003", q: "พื้นที่ของสี่เหลี่ยมจัตุรัสด้านยาว 8 ซม. เท่ากับเท่าใด?", choices: ["16 ตร.ซม.", "32 ตร.ซม.", "64 ตร.ซม.", "80 ตร.ซม."], choiceImageIds: [null, null, null, null], choiceImages: [null, null, null, null], subject: "คณิตศาสตร์", category: "เรขาคณิต", level: "ระดับพื้นฐาน", image: null },
-  { id: "20000000-0000-4000-8000-000000000004", q: "3/4 เขียนเป็นทศนิยมได้ข้อใด?", choices: ["0.25", "0.50", "0.75", "1.25"], choiceImageIds: [null, null, null, null], choiceImages: [null, null, null, null], subject: "คณิตศาสตร์", category: "เศษส่วน", level: "ระดับพื้นฐาน", image: null },
-  { id: "20000000-0000-4000-8000-000000000005", q: "ค่าเฉลี่ยของ 6, 8 และ 10 เท่ากับเท่าใด?", choices: ["7", "8", "9", "10"], choiceImageIds: [null, null, null, null], choiceImages: [null, null, null, null], subject: "คณิตศาสตร์", category: "สถิติ", level: "ระดับพื้นฐาน", image: null },
-  { id: "20000000-0000-4000-8000-000000000006", q: "มุมตรงมีขนาดกี่องศา?", choices: ["45°", "90°", "180°", "360°"], choiceImageIds: [null, null, null, null], choiceImages: [null, null, null, null], subject: "คณิตศาสตร์", category: "เรขาคณิต", level: "ระดับพื้นฐาน", image: null },
-  { id: "20000000-0000-4000-8000-000000000007", q: "2⁵ มีค่าเท่าใด?", choices: ["10", "16", "25", "32"], choiceImageIds: [null, null, null, null], choiceImages: [null, null, null, null], subject: "คณิตศาสตร์", category: "เลขยกกำลัง", level: "ระดับพื้นฐาน", image: null },
-  { id: "20000000-0000-4000-8000-000000000008", q: "จำนวนถัดไปของ 2, 4, 8, 16 คือข้อใด?", choices: ["18", "24", "30", "32"], choiceImageIds: [null, null, null, null], choiceImages: [null, null, null, null], subject: "คณิตศาสตร์", category: "ลำดับ", level: "ระดับพื้นฐาน", image: null },
-  { id: "20000000-0000-4000-8000-000000000009", q: "รากที่สองของ 144 คือข้อใด?", choices: ["10", "11", "12", "14"], choiceImageIds: [null, null, null, null], choiceImages: [null, null, null, null], subject: "คณิตศาสตร์", category: "รากที่สอง", level: "ระดับพื้นฐาน", image: null },
-  { id: "20000000-0000-4000-8000-000000000010", q: "15% ของ 200 เท่ากับเท่าใด?", choices: ["15", "20", "30", "45"], choiceImageIds: [null, null, null, null], choiceImages: [null, null, null, null], subject: "คณิตศาสตร์", category: "ร้อยละ", level: "ระดับพื้นฐาน", image: null },
+  { id: "20000000-0000-4000-8000-000000000001", q: "ถ้า 3x + 7 = 22 แล้ว x มีค่าเท่าใด?", choices: ["3", "5", "7", "9"], choiceIndexes: [0, 1, 2, 3], choiceImageIds: [null, null, null, null], choiceImages: [null, null, null, null], subject: "คณิตศาสตร์", category: "พีชคณิต", level: "ระดับพื้นฐาน", image: null },
+  { id: "20000000-0000-4000-8000-000000000002", q: "จำนวนใดเป็นจำนวนเฉพาะ?", choices: ["21", "27", "29", "33"], choiceIndexes: [0, 1, 2, 3], choiceImageIds: [null, null, null, null], choiceImages: [null, null, null, null], subject: "คณิตศาสตร์", category: "จำนวน", level: "ระดับพื้นฐาน", image: null },
+  { id: "20000000-0000-4000-8000-000000000003", q: "พื้นที่ของสี่เหลี่ยมจัตุรัสด้านยาว 8 ซม. เท่ากับเท่าใด?", choices: ["16 ตร.ซม.", "32 ตร.ซม.", "64 ตร.ซม.", "80 ตร.ซม."], choiceIndexes: [0, 1, 2, 3], choiceImageIds: [null, null, null, null], choiceImages: [null, null, null, null], subject: "คณิตศาสตร์", category: "เรขาคณิต", level: "ระดับพื้นฐาน", image: null },
+  { id: "20000000-0000-4000-8000-000000000004", q: "3/4 เขียนเป็นทศนิยมได้ข้อใด?", choices: ["0.25", "0.50", "0.75", "1.25"], choiceIndexes: [0, 1, 2, 3], choiceImageIds: [null, null, null, null], choiceImages: [null, null, null, null], subject: "คณิตศาสตร์", category: "เศษส่วน", level: "ระดับพื้นฐาน", image: null },
+  { id: "20000000-0000-4000-8000-000000000005", q: "ค่าเฉลี่ยของ 6, 8 และ 10 เท่ากับเท่าใด?", choices: ["7", "8", "9", "10"], choiceIndexes: [0, 1, 2, 3], choiceImageIds: [null, null, null, null], choiceImages: [null, null, null, null], subject: "คณิตศาสตร์", category: "สถิติ", level: "ระดับพื้นฐาน", image: null },
+  { id: "20000000-0000-4000-8000-000000000006", q: "มุมตรงมีขนาดกี่องศา?", choices: ["45°", "90°", "180°", "360°"], choiceIndexes: [0, 1, 2, 3], choiceImageIds: [null, null, null, null], choiceImages: [null, null, null, null], subject: "คณิตศาสตร์", category: "เรขาคณิต", level: "ระดับพื้นฐาน", image: null },
+  { id: "20000000-0000-4000-8000-000000000007", q: "2⁵ มีค่าเท่าใด?", choices: ["10", "16", "25", "32"], choiceIndexes: [0, 1, 2, 3], choiceImageIds: [null, null, null, null], choiceImages: [null, null, null, null], subject: "คณิตศาสตร์", category: "เลขยกกำลัง", level: "ระดับพื้นฐาน", image: null },
+  { id: "20000000-0000-4000-8000-000000000008", q: "จำนวนถัดไปของ 2, 4, 8, 16 คือข้อใด?", choices: ["18", "24", "30", "32"], choiceIndexes: [0, 1, 2, 3], choiceImageIds: [null, null, null, null], choiceImages: [null, null, null, null], subject: "คณิตศาสตร์", category: "ลำดับ", level: "ระดับพื้นฐาน", image: null },
+  { id: "20000000-0000-4000-8000-000000000009", q: "รากที่สองของ 144 คือข้อใด?", choices: ["10", "11", "12", "14"], choiceIndexes: [0, 1, 2, 3], choiceImageIds: [null, null, null, null], choiceImages: [null, null, null, null], subject: "คณิตศาสตร์", category: "รากที่สอง", level: "ระดับพื้นฐาน", image: null },
+  { id: "20000000-0000-4000-8000-000000000010", q: "15% ของ 200 เท่ากับเท่าใด?", choices: ["15", "20", "30", "45"], choiceIndexes: [0, 1, 2, 3], choiceImageIds: [null, null, null, null], choiceImages: [null, null, null, null], subject: "คณิตศาสตร์", category: "ร้อยละ", level: "ระดับพื้นฐาน", image: null },
 ];
 
 const defaultAnswers: Record<number, number> = {};
@@ -259,16 +260,12 @@ export default function Home() {
       id: question.id,
       q: question.question,
       choices: question.choices
-        .slice()
-        .sort((a, b) => a.choice_index - b.choice_index)
         .map((choice) => choice.answer),
+      choiceIndexes: question.choices
+        .map((choice) => choice.choice_index),
       choiceImageIds: question.choices
-        .slice()
-        .sort((a, b) => a.choice_index - b.choice_index)
         .map((choice) => choice.answer_id),
       choiceImages: question.choices
-        .slice()
-        .sort((a, b) => a.choice_index - b.choice_index)
         .map((choice) => choice.image),
       subject: payload.test.subject,
       category: payload.test.category,
@@ -579,7 +576,7 @@ export default function Home() {
         client_nonce: nonce,
         event_type: eventType,
         duration_seconds: questionSecondsRef.current[index] ?? 0,
-        selected_choice: answersRef.current[index] ?? null,
+        selected_choice: answersRef.current[index] !== undefined ? activeQuestions[index].choiceIndexes[answersRef.current[index]] ?? null : null,
         status: status ?? statusFor(index),
       });
     } catch {
@@ -839,7 +836,10 @@ export default function Home() {
     setSubmitting(true); setRunning(false);
     try {
       await syncAllQuestionLogs("submit");
-      const keyedAnswers = Object.fromEntries(Object.entries(answers).map(([index, choice]) => [questions[Number(index)].id, choice]));
+      const keyedAnswers = Object.fromEntries(Object.entries(answers).map(([index, choice]) => {
+        const question = questions[Number(index)];
+        return [question.id, question.choiceIndexes[choice] ?? choice];
+      }));
       const submitted = await submitRemoteAttempt({ set_id: activeTestId, answers: keyedAnswers, elapsed_seconds: Math.max(30, seconds), client_nonce: nonce });
       setResult(submitted);
       const [attemptRows, summary, insights] = await Promise.all([loadRemoteAttempts(), loadDashboardSummary(), loadLearningInsights()]);
@@ -1013,7 +1013,8 @@ export default function Home() {
                 <div className="assist-row"><button className="hint-button" disabled={hinting || totalHintsUsed >= 2 || currentHints.length > 0 || backendStatus !== "online"} onClick={() => void handleHint()}>{hinting ? "กำลังตัดตัวเลือก…" : `Hint ${totalHintsUsed}/2`}</button><span>ตัดตัวเลือกผิด 2 ข้อ · หัก {hintPenalty.toFixed(1)} คะแนน</span></div>
                 {currentHints.length > 0 && <div className="hint-stack" aria-live="polite">{currentHints.map((hint) => <p key={hint.hint_id}>{hint.hint_text}</p>)}</div>}
                 <div className="choices">{currentQuestion.choices.map((choice, i) => {
-                  const eliminated = eliminatedChoices.has(i);
+                  const originalChoiceIndex = currentQuestion.choiceIndexes[i] ?? i;
+                  const eliminated = eliminatedChoices.has(originalChoiceIndex);
                   const answerImageId = currentQuestion.choiceImageIds[i];
                   const answerImage = currentQuestion.choiceImages[i];
                   return <button key={`${currentQuestion.id}-${i}`} disabled={eliminated} className={`${answers[current] === i ? "selected" : ""} ${eliminated ? "eliminated" : ""}`} onClick={() => choose(i)}>
@@ -1074,7 +1075,7 @@ export default function Home() {
           <div className="question-log-table">
             <div className="question-log-head"><span>ข้อ</span><span>ผล</span><span>เวลา</span><span>คำตอบที่เลือก</span><span>Insight</span></div>
             {attemptDetail.questions.map((item) => <button className={`question-log-row ${item.status === "incorrect" ? "wrong" : item.status === "correct" ? "right" : ""}`} key={item.log_id} onClick={() => setSelectedLogQuestion(item)}>
-              <span>ข้อ {item.position}</span><span>{questionResultLabel(item.status)}</span><span>{formatDurationLong(item.duration_seconds)}</span><span>{item.selected_answer ? `${item.selected_choice !== null ? String.fromCharCode(65 + item.selected_choice) + ". " : ""}${item.selected_answer}` : "—"}</span><span>{questionInsightText(item)}</span>
+              <span>ข้อ {item.position}</span><span>{questionResultLabel(item.status)}</span><span>{formatDurationLong(item.duration_seconds)}</span><span>{item.selected_answer || "—"}</span><span>{questionInsightText(item)}</span>
             </button>)}
           </div>
         </div>}
@@ -1084,8 +1085,8 @@ export default function Home() {
         <div className={`result-strip ${selectedLogQuestion.status === "incorrect" ? "wrong" : "right"}`}><b>{questionInsightText(selectedLogQuestion)}</b><span>{selectedLogQuestion.used_hint ? `ใช้ Hint ${selectedLogQuestion.hint_count} ครั้งในข้อนี้` : "ไม่ใช้ Hint ในข้อนี้"}</span></div>
         <article className="question-review"><h3>โจทย์</h3><p>{selectedLogQuestion.question}</p></article>
         <div className="answer-review-grid">
-          <div><span>คำตอบที่เลือก</span><b>{selectedLogQuestion.selected_answer ? `${selectedLogQuestion.selected_choice !== null ? String.fromCharCode(65 + selectedLogQuestion.selected_choice) + ". " : ""}${selectedLogQuestion.selected_answer}` : "ไม่ได้เลือกคำตอบ"}</b></div>
-          <div><span>เฉลยที่ถูก</span><b>{selectedLogQuestion.correct_answer ? `${selectedLogQuestion.correct_choice !== null ? String.fromCharCode(65 + selectedLogQuestion.correct_choice) + ". " : ""}${selectedLogQuestion.correct_answer}` : "ไม่มีข้อมูลเฉลย"}</b></div>
+          <div><span>คำตอบที่เลือก</span><b>{selectedLogQuestion.selected_answer || "ไม่ได้เลือกคำตอบ"}</b></div>
+          <div><span>เฉลยที่ถูก</span><b>{selectedLogQuestion.correct_answer || "ไม่มีข้อมูลเฉลย"}</b></div>
         </div>
         <article className="explanation-card"><h3>คำอธิบาย</h3><p>{selectedLogQuestion.explanation || "ยังไม่มีคำอธิบายสำหรับข้อนี้ในฐานข้อมูล"}</p></article>
         <button className="primary full" onClick={() => setSelectedLogQuestion(null)}>กลับไปดู Dashboard รอบนี้</button>
