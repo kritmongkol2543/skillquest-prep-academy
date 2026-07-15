@@ -239,6 +239,16 @@ export async function pauseRemoteTest(testId: string) {
   return data?.data as { test_id: string; status: string; paused_at: string };
 }
 
+export async function cancelRemoteTest(testId: string) {
+  const { data, error } = await supabase.functions.invoke("skillquest-api", {
+    headers: await getSessionHeaders(),
+    body: { action: "cancel_test", test_id: testId },
+  });
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+  return data?.data as { test_id: string; status: "cancelled"; cancelled_at: string };
+}
+
 export async function loadRemoteAttempts() {
   const { data, error } = await supabase.functions.invoke("skillquest-api", {
     headers: await getSessionHeaders(),

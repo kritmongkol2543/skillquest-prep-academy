@@ -120,6 +120,17 @@ Deno.serve(async (request: Request) => {
     return json(origin, { data });
   }
 
+  if (body.action === "cancel_test") {
+    const testId = body.test_id;
+    if (typeof testId !== "string") return json(origin, { error: "INVALID_TEST" }, 400);
+    const { data, error } = await admin.rpc("cancel_test_service", {
+      p_user_id: authData.user.id,
+      p_test_id: testId,
+    });
+    if (error) return json(origin, { error: "CANCEL_FAILED" }, 503);
+    return json(origin, { data });
+  }
+
   if (body.action === "attempt_history") {
     const rawLimit = typeof body.limit === "number" ? Math.trunc(body.limit) : 10;
     const limit = Math.min(50, Math.max(1, rawLimit));

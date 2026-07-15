@@ -219,6 +219,7 @@ h1, h2, p { text-wrap: pretty; }
 .back-link { border: 0; background: none; padding: 0; color: var(--muted); font-size: 11px; cursor: pointer; }
 .exam-header h1 { margin: 5px 0 0; color: var(--navy); font-size: 17px; }
 .exam-metrics { display: flex; align-items: center; gap: 28px; }
+.pause-button { flex: 0 0 auto; }
 .exam-metrics > div { display: grid; gap: 2px; }
 .exam-metrics small { color: var(--muted); font-size: 10px; }
 .exam-metrics b { font-variant-numeric: tabular-nums; font-size: 13px; }
@@ -276,6 +277,7 @@ h1, h2, p { text-wrap: pretty; }
 .modal.wide { width: min(560px, 100%); }
 .modal-icon { width: 48px; height: 48px; margin: 0 auto 18px; display: grid; place-items: center; border-radius: 50%; background: #eaf0f4; color: var(--navy); font-weight: 800; }
 .modal-icon.warning { background: #f8eee6; color: var(--orange); }
+.modal-icon.start { background: #e7f1ed; color: var(--green); }
 .modal-icon.result { background: var(--green-soft); color: var(--green); }
 .modal h2 { margin: 0 0 7px; color: var(--navy); font-size: 22px; }
 .modal > p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.65; }
@@ -284,6 +286,12 @@ h1, h2, p { text-wrap: pretty; }
 .resume-summary span { padding: 12px; display: grid; border-radius: 9px; background: var(--soft); }
 .resume-summary small { color: var(--muted); font-size: 10px; }
 .resume-summary b { overflow-wrap: anywhere; }
+.pause-duration { margin: 20px 0; padding: 16px; border-radius: 10px; background: var(--navy); color: #fff; display: grid; gap: 3px; }
+.pause-duration small, .pause-duration span { color: #c7d3de; font-size: 11px; }
+.pause-duration b { font-size: 28px; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.danger-button { min-height: 44px; border: 1px solid var(--danger); border-radius: 9px; background: var(--danger); color: #fff; font-weight: 750; cursor: pointer; }
+.danger-button:hover { background: #943439; border-color: #943439; }
+.danger-button:disabled { opacity: .6; cursor: wait; }
 .history-empty { margin-top: 18px; }
 .danger-link { margin-top: 13px; border: 0; background: none; color: var(--danger); font-size: 12px; cursor: pointer; }
 .danger-link.neutral { color: var(--muted); }
@@ -356,7 +364,8 @@ h1, h2, p { text-wrap: pretty; }
   .exam-page { padding-bottom: 62px; }
   .exam-header { min-height: 76px; padding: 10px 15px; align-items: flex-start; }
   .exam-header h1 { font-size: 13px; }
-  .exam-metrics > div:nth-child(2), .exam-metrics .secondary { display: none; }
+  .exam-metrics > div:nth-child(2) { display: none; }
+  .pause-button { min-height: 36px; padding-inline: 10px; font-size: 12px; }
   .exam-body { display: block; }
   .question-nav { padding: 12px 15px; border-right: 0; border-bottom: 1px solid var(--line); }
   .question-nav > div:first-child, .question-legend { display: none; }
