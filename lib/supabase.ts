@@ -92,12 +92,22 @@ export type RemoteQuestionChoice = {
   answer_id: string;
   choice_index: number;
   answer: string;
+  answer_content?: RichTextContent | null;
   image: string | null;
+};
+
+export type RichTextContent = {
+  version?: number;
+  blocks?: Array<
+    | { type: "paragraph"; text?: string }
+    | { type: "ordered_list"; items?: Array<{ text?: string }> }
+  >;
 };
 
 export type RemoteQuestion = {
   id: string;
   question: string;
+  question_content?: RichTextContent | null;
   subject_id: string;
   category_id: string;
   level: string;

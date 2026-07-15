@@ -29,6 +29,7 @@ import {
   type RemoteAttempt,
   type RemoteTest,
   type RemoteTestPayload,
+  type RichTextContent,
 } from "@/lib/supabase";
 
 type View = "dashboard" | "history" | "exam";
@@ -36,7 +37,9 @@ type QuestionState = "viewed" | "paused" | "answered" | "changed_answer" | "revi
 type ExamQuestion = {
   id: string;
   q: string;
+  content: RichTextContent | null;
   choices: string[];
+  choiceContents: (RichTextContent | null)[];
   choiceIndexes: number[];
   choiceImageIds: (string | null)[];
   choiceImages: (string | null)[];
@@ -67,16 +70,16 @@ const fallbackTest: RemoteTest = {
   question_count: 10,
 };
 const fallbackQuestions: ExamQuestion[] = [
-  { id: "20000000-0000-4000-8000-000000000001", q: "ถ้า 3x + 7 = 22 แล้ว x มีค่าเท่าใด?", choices: ["3", "5", "7", "9"], choiceIndexes: [0, 1, 2, 3], choiceImageIds: [null, null, null, null], choiceImages: [null, null, null, null], subject: "คณิตศาสตร์", category: "พีชคณิต", level: "ระดับพื้นฐาน", image: null },
-  { id: "20000000-0000-4000-8000-000000000002", q: "จำนวนใดเป็นจำนวนเฉพาะ?", choices: ["21", "27", "29", "33"], choiceIndexes: [0, 1, 2, 3], choiceImageIds: [null, null, null, null], choiceImages: [null, null, null, null], subject: "คณิตศาสตร์", category: "จำนวน", level: "ระดับพื้นฐาน", image: null },
-  { id: "20000000-0000-4000-8000-000000000003", q: "พื้นที่ของสี่เหลี่ยมจัตุรัสด้านยาว 8 ซม. เท่ากับเท่าใด?", choices: ["16 ตร.ซม.", "32 ตร.ซม.", "64 ตร.ซม.", "80 ตร.ซม."], choiceIndexes: [0, 1, 2, 3], choiceImageIds: [null, null, null, null], choiceImages: [null, null, null, null], subject: "คณิตศาสตร์", category: "เรขาคณิต", level: "ระดับพื้นฐาน", image: null },
-  { id: "20000000-0000-4000-8000-000000000004", q: "3/4 เขียนเป็นทศนิยมได้ข้อใด?", choices: ["0.25", "0.50", "0.75", "1.25"], choiceIndexes: [0, 1, 2, 3], choiceImageIds: [null, null, null, null], choiceImages: [null, null, null, null], subject: "คณิตศาสตร์", category: "เศษส่วน", level: "ระดับพื้นฐาน", image: null },
-  { id: "20000000-0000-4000-8000-000000000005", q: "ค่าเฉลี่ยของ 6, 8 และ 10 เท่ากับเท่าใด?", choices: ["7", "8", "9", "10"], choiceIndexes: [0, 1, 2, 3], choiceImageIds: [null, null, null, null], choiceImages: [null, null, null, null], subject: "คณิตศาสตร์", category: "สถิติ", level: "ระดับพื้นฐาน", image: null },
-  { id: "20000000-0000-4000-8000-000000000006", q: "มุมตรงมีขนาดกี่องศา?", choices: ["45°", "90°", "180°", "360°"], choiceIndexes: [0, 1, 2, 3], choiceImageIds: [null, null, null, null], choiceImages: [null, null, null, null], subject: "คณิตศาสตร์", category: "เรขาคณิต", level: "ระดับพื้นฐาน", image: null },
-  { id: "20000000-0000-4000-8000-000000000007", q: "2⁵ มีค่าเท่าใด?", choices: ["10", "16", "25", "32"], choiceIndexes: [0, 1, 2, 3], choiceImageIds: [null, null, null, null], choiceImages: [null, null, null, null], subject: "คณิตศาสตร์", category: "เลขยกกำลัง", level: "ระดับพื้นฐาน", image: null },
-  { id: "20000000-0000-4000-8000-000000000008", q: "จำนวนถัดไปของ 2, 4, 8, 16 คือข้อใด?", choices: ["18", "24", "30", "32"], choiceIndexes: [0, 1, 2, 3], choiceImageIds: [null, null, null, null], choiceImages: [null, null, null, null], subject: "คณิตศาสตร์", category: "ลำดับ", level: "ระดับพื้นฐาน", image: null },
-  { id: "20000000-0000-4000-8000-000000000009", q: "รากที่สองของ 144 คือข้อใด?", choices: ["10", "11", "12", "14"], choiceIndexes: [0, 1, 2, 3], choiceImageIds: [null, null, null, null], choiceImages: [null, null, null, null], subject: "คณิตศาสตร์", category: "รากที่สอง", level: "ระดับพื้นฐาน", image: null },
-  { id: "20000000-0000-4000-8000-000000000010", q: "15% ของ 200 เท่ากับเท่าใด?", choices: ["15", "20", "30", "45"], choiceIndexes: [0, 1, 2, 3], choiceImageIds: [null, null, null, null], choiceImages: [null, null, null, null], subject: "คณิตศาสตร์", category: "ร้อยละ", level: "ระดับพื้นฐาน", image: null },
+  { id: "20000000-0000-4000-8000-000000000001", q: "ถ้า 3x + 7 = 22 แล้ว x มีค่าเท่าใด?", content: null, choices: ["3", "5", "7", "9"], choiceContents: [null, null, null, null], choiceIndexes: [0, 1, 2, 3], choiceImageIds: [null, null, null, null], choiceImages: [null, null, null, null], subject: "คณิตศาสตร์", category: "พีชคณิต", level: "ระดับพื้นฐาน", image: null },
+  { id: "20000000-0000-4000-8000-000000000002", q: "จำนวนใดเป็นจำนวนเฉพาะ?", content: null, choices: ["21", "27", "29", "33"], choiceContents: [null, null, null, null], choiceIndexes: [0, 1, 2, 3], choiceImageIds: [null, null, null, null], choiceImages: [null, null, null, null], subject: "คณิตศาสตร์", category: "จำนวน", level: "ระดับพื้นฐาน", image: null },
+  { id: "20000000-0000-4000-8000-000000000003", q: "พื้นที่ของสี่เหลี่ยมจัตุรัสด้านยาว 8 ซม. เท่ากับเท่าใด?", content: null, choices: ["16 ตร.ซม.", "32 ตร.ซม.", "64 ตร.ซม.", "80 ตร.ซม."], choiceContents: [null, null, null, null], choiceIndexes: [0, 1, 2, 3], choiceImageIds: [null, null, null, null], choiceImages: [null, null, null, null], subject: "คณิตศาสตร์", category: "เรขาคณิต", level: "ระดับพื้นฐาน", image: null },
+  { id: "20000000-0000-4000-8000-000000000004", q: "3/4 เขียนเป็นทศนิยมได้ข้อใด?", content: null, choices: ["0.25", "0.50", "0.75", "1.25"], choiceContents: [null, null, null, null], choiceIndexes: [0, 1, 2, 3], choiceImageIds: [null, null, null, null], choiceImages: [null, null, null, null], subject: "คณิตศาสตร์", category: "เศษส่วน", level: "ระดับพื้นฐาน", image: null },
+  { id: "20000000-0000-4000-8000-000000000005", q: "ค่าเฉลี่ยของ 6, 8 และ 10 เท่ากับเท่าใด?", content: null, choices: ["7", "8", "9", "10"], choiceContents: [null, null, null, null], choiceIndexes: [0, 1, 2, 3], choiceImageIds: [null, null, null, null], choiceImages: [null, null, null, null], subject: "คณิตศาสตร์", category: "สถิติ", level: "ระดับพื้นฐาน", image: null },
+  { id: "20000000-0000-4000-8000-000000000006", q: "มุมตรงมีขนาดกี่องศา?", content: null, choices: ["45°", "90°", "180°", "360°"], choiceContents: [null, null, null, null], choiceIndexes: [0, 1, 2, 3], choiceImageIds: [null, null, null, null], choiceImages: [null, null, null, null], subject: "คณิตศาสตร์", category: "เรขาคณิต", level: "ระดับพื้นฐาน", image: null },
+  { id: "20000000-0000-4000-8000-000000000007", q: "2⁵ มีค่าเท่าใด?", content: null, choices: ["10", "16", "25", "32"], choiceContents: [null, null, null, null], choiceIndexes: [0, 1, 2, 3], choiceImageIds: [null, null, null, null], choiceImages: [null, null, null, null], subject: "คณิตศาสตร์", category: "เลขยกกำลัง", level: "ระดับพื้นฐาน", image: null },
+  { id: "20000000-0000-4000-8000-000000000008", q: "จำนวนถัดไปของ 2, 4, 8, 16 คือข้อใด?", content: null, choices: ["18", "24", "30", "32"], choiceContents: [null, null, null, null], choiceIndexes: [0, 1, 2, 3], choiceImageIds: [null, null, null, null], choiceImages: [null, null, null, null], subject: "คณิตศาสตร์", category: "ลำดับ", level: "ระดับพื้นฐาน", image: null },
+  { id: "20000000-0000-4000-8000-000000000009", q: "รากที่สองของ 144 คือข้อใด?", content: null, choices: ["10", "11", "12", "14"], choiceContents: [null, null, null, null], choiceIndexes: [0, 1, 2, 3], choiceImageIds: [null, null, null, null], choiceImages: [null, null, null, null], subject: "คณิตศาสตร์", category: "รากที่สอง", level: "ระดับพื้นฐาน", image: null },
+  { id: "20000000-0000-4000-8000-000000000010", q: "15% ของ 200 เท่ากับเท่าใด?", content: null, choices: ["15", "20", "30", "45"], choiceContents: [null, null, null, null], choiceIndexes: [0, 1, 2, 3], choiceImageIds: [null, null, null, null], choiceImages: [null, null, null, null], subject: "คณิตศาสตร์", category: "ร้อยละ", level: "ระดับพื้นฐาน", image: null },
 ];
 
 const defaultAnswers: Record<number, number> = {};
@@ -236,6 +239,29 @@ function HistoryTable({ rows, onOpenDetail }: { rows: HistoryRow[]; onOpenDetail
   </div>;
 }
 
+function RichContentView({ content, fallback, variant }: { content?: RichTextContent | null; fallback: string; variant: "question" | "choice" }) {
+  const blocks = Array.isArray(content?.blocks) ? content.blocks : [];
+  if (!blocks.length) {
+    return variant === "question" ? <div className="question-prompt"><h2>{fallback}</h2></div> : <span className="choice-content">{fallback}</span>;
+  }
+
+  const rendered = blocks.map((block, index) => {
+    if (block.type === "ordered_list") {
+      const items = Array.isArray(block.items) ? block.items.filter((item) => item.text?.trim()) : [];
+      if (!items.length) return null;
+      return <ol key={`list-${index}`}>
+        {items.map((item, itemIndex) => <li key={`${index}-${itemIndex}`}><span>{itemIndex + 1}</span><p>{item.text}</p></li>)}
+      </ol>;
+    }
+    const text = block.text?.trim();
+    if (!text) return null;
+    if (variant === "question" && index === 0) return <h2 key={`p-${index}`}>{text}</h2>;
+    return <p key={`p-${index}`}>{text}</p>;
+  });
+
+  return <div className={variant === "question" ? "question-prompt structured" : "choice-content rich-choice"}>{rendered}</div>;
+}
+
 function localDateKey(date: Date) {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, "0");
@@ -355,8 +381,11 @@ export default function Home() {
     return payload.questions.map((question) => ({
       id: question.id,
       q: question.question,
+      content: question.question_content ?? null,
       choices: question.choices
         .map((choice) => choice.answer),
+      choiceContents: question.choices
+        .map((choice) => choice.answer_content ?? null),
       choiceIndexes: question.choices
         .map((choice) => choice.choice_index),
       choiceImageIds: question.choices
@@ -1144,7 +1173,7 @@ export default function Home() {
               <div className="question-status"><span>ข้อ {current + 1} จาก {questions.length}</span><span>{answers[current] !== undefined ? "ตอบแล้ว" : states[current] === "paused" ? "ข้ามไว้" : "กำลังทำ"}</span><span>ข้อนี้ {formatTime(currentQuestionSeconds)}</span><span className={`save-state ${saved ? "show" : ""}`}>✓ บันทึกแล้ว</span></div>
               <article className="question-card">
                 <small>{currentQuestion.subject} · ระดับ {formatLevelName(currentQuestion.category)} · {currentQuestion.level}</small>
-                <h2>{currentQuestion.q}</h2>
+                <RichContentView content={currentQuestion.content} fallback={currentQuestion.q} variant="question" />
                 {currentQuestion.image && <img className="question-image" src={proxiedImageUrl("question", currentQuestion.id, currentQuestion.image)} alt={`รูปประกอบข้อ ${current + 1}`} loading="lazy" referrerPolicy="no-referrer" />}
                 <p>เลือกคำตอบที่ถูกต้องที่สุดเพียงข้อเดียว</p>
                 <div className="assist-row"><button className="hint-button" disabled={hinting || totalHintsUsed >= 2 || currentHints.length > 0 || backendStatus !== "online"} onClick={() => void handleHint()}>{hinting ? "กำลังตัดตัวเลือก…" : `Hint ${totalHintsUsed}/2`}</button><span>ตัดตัวเลือกผิด 2 ข้อ · หัก {hintPenalty.toFixed(1)} คะแนน</span></div>
@@ -1155,8 +1184,8 @@ export default function Home() {
                   const answerImageId = currentQuestion.choiceImageIds[i];
                   const answerImage = currentQuestion.choiceImages[i];
                   return <button key={`${currentQuestion.id}-${i}`} disabled={eliminated} className={`${answers[current] === i ? "selected" : ""} ${eliminated ? "eliminated" : ""}`} onClick={() => choose(i)}>
-                    <span>{String.fromCharCode(65 + i)}</span>
-                    <b>{choice}{answerImageId && answerImage && <img className="choice-image" src={proxiedImageUrl("answer", answerImageId, answerImage)} alt={`รูปประกอบตัวเลือก ${String.fromCharCode(65 + i)}`} loading="lazy" referrerPolicy="no-referrer" />}</b>
+                    <span className="choice-letter">{String.fromCharCode(65 + i)}</span>
+                    <span className="choice-copy"><RichContentView content={currentQuestion.choiceContents[i]} fallback={choice} variant="choice" />{answerImageId && answerImage && <img className="choice-image" src={proxiedImageUrl("answer", answerImageId, answerImage)} alt={`รูปประกอบตัวเลือก ${String.fromCharCode(65 + i)}`} loading="lazy" referrerPolicy="no-referrer" />}</span>
                     <i>{eliminated ? "ตัดออก" : answers[current] === i ? "✓" : ""}</i>
                   </button>;
                 })}</div>
