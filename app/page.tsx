@@ -207,12 +207,21 @@ function Glyph({ children }: { children: React.ReactNode }) {
 type HistoryRow = {
   id: string;
   date: string;
+  dateKey: string;
   subject: string;
   set: string;
   score: string;
   accuracy: string;
   time: string;
   status: string;
+};
+
+type CalendarDay = {
+  key: string;
+  day: number;
+  isCurrentMonth: boolean;
+  isToday: boolean;
+  rows: HistoryRow[];
 };
 
 function HistoryTable({ rows, onOpenDetail }: { rows: HistoryRow[]; onOpenDetail: (attemptId: string) => void }) {
@@ -227,6 +236,43 @@ function HistoryTable({ rows, onOpenDetail }: { rows: HistoryRow[]; onOpenDetail
   </div>;
 }
 
+function localDateKey(date: Date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function formatCalendarTitle(date: Date) {
+  return new Intl.DateTimeFormat("th-TH", { month: "long", year: "numeric" }).format(date);
+}
+
+function formatFullThaiDate(dateKey: string) {
+  return new Intl.DateTimeFormat("th-TH", { weekday: "long", day: "numeric", month: "long", year: "numeric" }).format(new Date(`${dateKey}T00:00:00`));
+}
+
+function buildAttemptCalendar(rows: HistoryRow[], anchor = new Date()): CalendarDay[] {
+  const grouped = rows.reduce<Record<string, HistoryRow[]>>((acc, row) => {
+    acc[row.dateKey] = [...(acc[row.dateKey] ?? []), row];
+    return acc;
+  }, {});
+  const firstOfMonth = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
+  const startOffset = (firstOfMonth.getDay() + 6) % 7;
+  const start = new Date(anchor.getFullYear(), anchor.getMonth(), 1 - startOffset);
+  return Array.from({ length: 42 }, (_, index) => {
+    const date = new Date(start);
+    date.setDate(start.getDate() + index);
+    const key = localDateKey(date);
+    return {
+      key,
+      day: date.getDate(),
+      isCurrentMonth: date.getMonth() === anchor.getMonth(),
+      isToday: key === localDateKey(new Date()),
+      rows: grouped[key] ?? [],
+    };
+  });
+}
+
 export default function Home() {
   const [view, setView] = useState<View>("dashboard");
   const [current, setCurrent] = useState(0);
@@ -238,7 +284,7 @@ export default function Home() {
   const [pauseStartedAt, setPauseStartedAt] = useState("");
   const [pausedNow, setPausedNow] = useState(() => Date.now());
   const [submitOpen, setSubmitOpen] = useState(false);
-  const [range, setRange] = useState("30 วัน");
+  const [calendarDayKey, setCalendarDayKey] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [clientNonce, setClientNonce] = useState("");
   const [clientInstanceId, setClientInstanceId] = useState("");
@@ -514,7 +560,6 @@ export default function Home() {
     };
   }, [activeSessionId, answers, states, current, seconds, questionSeconds, hints, running]);
 
-  const chartPoints = useMemo(() => range === "30 วัน" ? "0,86 48,67 96,72 144,38 192,52 240,24 288,35 336,12" : "0,78 48,72 96,50 144,63 192,34 240,44 288,18 336,26", [range]);
   const averageAccuracy = dashboardSummary ? Math.round(Number(dashboardSummary.average_accuracy)) : remoteAttempts.length ? Math.round(remoteAttempts.reduce((sum, item) => sum + Number(item.accuracy), 0) / remoteAttempts.length) : 82;
   const totalSeconds = dashboardSummary ? Number(dashboardSummary.active_seconds ?? 0) : remoteAttempts.reduce((sum, item) => sum + item.elapsed_seconds, 0);
   const syncedAttemptsCount = dashboardSummary ? Number(dashboardSummary.attempts_count ?? 0) : remoteAttempts.length;
@@ -532,6 +577,7 @@ export default function Home() {
     .map((item) => ({
     id: item.id,
     date: new Intl.DateTimeFormat("th-TH", { day: "numeric", month: "short" }).format(new Date(item.submitted_at)),
+    dateKey: localDateKey(new Date(item.submitted_at)),
     subject: item.Test?.Subject ?? "แบบทดสอบ",
     set: item.Test?.Question ? item.Test.Question.replace("ชุดที่ ", "ระดับ ") : "ระดับฝึก",
     score: `${item.correct_count}/${item.total_questions}`,
@@ -539,6 +585,13 @@ export default function Home() {
     time: formatDurationLong(item.elapsed_seconds),
     status: "สำเร็จ",
   }));
+  const calendarAnchor = new Date();
+  const calendarDays = useMemo(() => buildAttemptCalendar(remoteHistory, calendarAnchor), [remoteHistory]);
+  const selectedCalendarRows = calendarDayKey ? remoteHistory.filter((row) => row.dateKey === calendarDayKey) : [];
+  const currentMonthAttemptCount = calendarDays
+    .filter((day) => day.isCurrentMonth)
+    .reduce((sum, day) => sum + day.rows.length, 0);
+  const todayAttemptCount = calendarDays.find((day) => day.isToday)?.rows.length ?? 0;
   const insightOverview = learningInsights?.overview;
   const hasInsightData = Boolean(insightOverview && insightOverview.questions_seen > 0);
   const subjectTimeRows = learningInsights?.subjects ?? [];
@@ -1043,8 +1096,28 @@ export default function Home() {
 
           <section className="dashboard-grid">
             <article className="panel trend-card">
-              <div className="section-heading"><div><h2>พัฒนาการคะแนน</h2><p>ค่าเฉลี่ยจากข้อสอบที่ส่งสำเร็จ</p></div><select value={range} onChange={(e) => setRange(e.target.value)} aria-label="เลือกช่วงเวลา"><option>30 วัน</option><option>90 วัน</option></select></div>
-              <div className="trend-plot"><div className="axis"><span>100</span><span>75</span><span>50</span><span>25</span></div><svg viewBox="0 0 336 100" preserveAspectRatio="none" role="img" aria-label="กราฟคะแนนมีแนวโน้มสูงขึ้น"><polyline points={chartPoints} /></svg><div className="dates"><span>12 มิ.ย.</span><span>20 มิ.ย.</span><span>28 มิ.ย.</span><span>6 ก.ค.</span><span>วันนี้</span></div></div>
+              <div className="section-heading"><div><h2>Calendar การฝึก</h2><p>ดูว่าวันไหนส่งแบบทดสอบสำเร็จกี่รอบ และกดวันที่มีข้อมูลเพื่อดูรายละเอียด</p></div><span className="calendar-month">{formatCalendarTitle(calendarAnchor)}</span></div>
+              <div className="calendar-summary" aria-label="สรุปจำนวนรอบสอบจากปฏิทิน">
+                <span><b>{currentMonthAttemptCount}</b><small>รอบในเดือนนี้</small></span>
+                <span><b>{todayAttemptCount}</b><small>รอบวันนี้</small></span>
+              </div>
+              <div className="attempt-calendar" aria-label="ปฏิทินการทำแบบทดสอบ">
+                {["จ", "อ", "พ", "พฤ", "ศ", "ส", "อา"].map((day) => <span className="calendar-weekday" key={day}>{day}</span>)}
+                {calendarDays.map((day) => {
+                  const count = day.rows.length;
+                  return <button
+                    key={day.key}
+                    type="button"
+                    className={`calendar-day ${day.isCurrentMonth ? "" : "muted"} ${day.isToday ? "today-cell" : ""} ${count ? "has-attempt" : ""}`}
+                    onClick={() => count && setCalendarDayKey(day.key)}
+                    disabled={!count}
+                    aria-label={`${formatFullThaiDate(day.key)} ${count ? `มีแบบทดสอบ ${count} รอบ` : "ไม่มีแบบทดสอบ"}`}
+                  >
+                    <span>{day.day}</span>
+                    {count > 0 && <b>{count} รอบ</b>}
+                  </button>;
+                })}
+              </div>
             </article>
             <article className="panel next-card"><div className="section-heading"><div><h2>เป้าหมายถัดไป</h2><p>โฟกัสจากผลล่าสุด</p></div><span className="level-badge">Personal</span></div><div className="ring"><b>{averageAccuracy || 0}%</b><span>Accuracy</span></div><p>เป้าหมายที่เหมาะตอนนี้คือทำให้จบอย่างน้อย 1 รอบในระดับที่เลือก แล้วดูว่าควรซ่อมระดับเดิมหรือพร้อมขยับระดับถัดไป</p><div className="next-checks"><span className="done">✓ เก็บเวลาแยกรายข้อ</span><span>○ ส่งข้อสอบให้ครบทุกข้อ</span><span>○ ทบทวนระดับที่ช้ากว่าเป้า</span></div></article>
           </section>
@@ -1114,6 +1187,10 @@ export default function Home() {
       {resumeOpen && !cancelOpen && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="resume-title"><div className="modal wide pause-modal"><span className="modal-icon">Ⅱ</span><h2 id="resume-title">พักการทำข้อสอบแล้ว</h2><p>เวลาทำจริงหยุดนับแล้ว คุณสามารถพักหรือสลับแท็บได้ แต่ต้องเปิดหน้านี้ค้างไว้เพื่อรักษารอบทำข้อสอบ</p><div className="pause-duration"><small>พักมาแล้ว</small><b>{formatDurationLong(pauseSeconds)}</b><span>เริ่มพักใหม่ทุกครั้งที่กดพักข้อสอบ</span></div><div className="resume-summary detailed"><span><small>ระดับข้อสอบ</small><b>{activeTestTitle}</b></span><span><small>ความคืบหน้า</small><b>{answeredCount}/{questions.length} ข้อ</b></span><span><small>เวลาที่ทำจริง</small><b>{formatDurationLong(seconds)}</b></span><span><small>เวลาต่อข้อเฉลี่ย</small><b>{formatPace(averageActiveQuestionSeconds)}</b></span></div><button className="primary full" onClick={resumeExam}>ทำข้อสอบต่อ</button><button className="danger-link" onClick={() => setCancelOpen(true)}>ยกเลิกแบบทดสอบ</button></div></div>}
       {cancelOpen && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="cancel-title"><div className="modal wide"><span className="modal-icon warning">!</span><h2 id="cancel-title">ยกเลิกแบบทดสอบนี้?</h2><p>คำตอบและ Log ของรอบนี้จะไม่ถูกนำไปเป็นผลสอบหรือประวัติการฝึก และจะเริ่มต่อจากจุดเดิมไม่ได้</p><div className="resume-summary detailed"><span><small>ระดับข้อสอบ</small><b>{activeTestTitle}</b></span><span><small>ทำไปแล้ว</small><b>{answeredCount}/{questions.length} ข้อ</b></span><span><small>เวลาที่ทำจริง</small><b>{formatDurationLong(seconds)}</b></span><span><small>ข้อที่เคยเปิดดู</small><b>{touchedQuestions} ข้อ</b></span></div><button className="danger-button full" disabled={cancelling} onClick={() => void cancelAttempt()}>{cancelling ? "กำลังยกเลิก…" : "ยืนยัน ยกเลิกแบบทดสอบ"}</button><button className="danger-link neutral" disabled={cancelling} onClick={() => setCancelOpen(false)}>กลับไปทำข้อสอบต่อ</button></div></div>}
       {activeTestLock && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="lock-title"><div className="modal wide lock-modal"><span className="modal-icon warning">!</span><p className="modal-kicker">ระบบใช้ได้ทีละคน</p><h2 id="lock-title">มีคนกำลังทำข้อสอบอยู่</h2><p>ยังเริ่มรอบใหม่ไม่ได้จนกว่ารอบที่กำลังทำอยู่จะส่งผลหรือถูกยกเลิก</p><div className="resume-summary detailed"><span><small>วิชา / ระดับ</small><b>{activeTestLock.title.replaceAll("ชุดที่", "ระดับ")}</b></span><span><small>สถานะ</small><b>{activeTestLock.status === "paused" ? "พักข้อสอบ" : "กำลังทำข้อสอบ"}</b></span><span><small>ทำไปแล้ว</small><b>{activeTestLock.answered_count}/{activeTestLock.total_questions} ข้อ</b></span><span><small>เวลาที่ใช้</small><b>{formatDurationLong(activeTestLock.elapsed_seconds)}</b></span></div><button className="primary full" onClick={() => { setActiveTestLock(null); void confirmStartExam(); }}>ตรวจสอบอีกครั้ง</button><button className="danger-link neutral" onClick={() => { setActiveTestLock(null); setStartOpen(false); }}>กลับไปเลือกระดับ</button></div></div>}
+      {calendarDayKey && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="calendar-detail-title"><div className="modal wide calendar-modal">
+        <div className="detail-header"><div><p className="modal-kicker">Calendar Detail</p><h2 id="calendar-detail-title">{formatFullThaiDate(calendarDayKey)}</h2><span>{selectedCalendarRows.length} รอบสอบที่ส่งสำเร็จในวันนี้</span></div><button className="icon-button" aria-label="ปิดรายละเอียดวันในปฏิทิน" onClick={() => setCalendarDayKey(null)}>×</button></div>
+        <HistoryTable rows={selectedCalendarRows} onOpenDetail={(id) => { setCalendarDayKey(null); void openAttemptDetail(id); }} />
+      </div></div>}
       {submitOpen && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="submit-title"><div className="modal"><span className="modal-icon warning">!</span><h2 id="submit-title">ยังเหลือ {remaining} ข้อ</h2><p>ตรวจคำตอบให้ครบก่อนส่ง เพื่อให้ระบบวิเคราะห์ผลได้แม่นยำ</p><div className="missing-list">{questions.map((_, i) => answers[i] === undefined && <button key={i} onClick={() => { setSubmitOpen(false); goTo(i); }}>ข้อ {i + 1}</button>)}</div><button className="primary full" onClick={() => { setSubmitOpen(false); const n = questions.findIndex((_, i) => answers[i] === undefined); if (n >= 0) goTo(n); }}>ไปข้อที่ยังไม่ตอบ</button><button className="danger-link neutral" onClick={() => setSubmitOpen(false)}>กลับไปตรวจคำตอบ</button></div></div>}
       {(detailLoading || detailError || attemptDetail) && <div className="modal-backdrop detail-backdrop" role="dialog" aria-modal="true" aria-labelledby="attempt-detail-title"><div className="modal insight-modal">
         <div className="detail-header"><div><p className="modal-kicker">Insight เฉพาะรอบสอบ</p><h2 id="attempt-detail-title">{attemptDetail ? formatSubjectLevel(attemptDetail.attempt.subject, attemptDetail.attempt.category) : "กำลังโหลดรายละเอียด"}</h2><span>{attemptDetail ? `ส่งเมื่อ ${new Intl.DateTimeFormat("th-TH", { dateStyle: "medium", timeStyle: "short" }).format(new Date(attemptDetail.attempt.submitted_at))}` : "ดึงเฉพาะ Log ของรอบนี้จาก Supabase"}</span></div><button className="icon-button" aria-label="ปิด Insight" onClick={() => { setAttemptDetail(null); setDetailError(""); setSelectedLogQuestion(null); }}>×</button></div>
