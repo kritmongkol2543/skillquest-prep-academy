@@ -24,6 +24,57 @@ export type RemoteAttempt = {
   Test: { Question: string; Subject: string } | null;
 };
 
+export type AttemptQuestionDetail = {
+  log_id: string;
+  question_id: string;
+  position: number;
+  question: string;
+  subject: string;
+  category: string;
+  level: string;
+  duration_seconds: number;
+  status: "correct" | "incorrect" | "answered" | "skipped" | "viewed" | "submitted" | string;
+  selected_choice: number | null;
+  selected_answer_id: string | null;
+  selected_answer: string | null;
+  correct_answer_id: string | null;
+  correct_choice: number | null;
+  correct_answer: string | null;
+  explanation: string | null;
+  hint_count: number;
+  used_hint: boolean;
+};
+
+export type AttemptDetail = {
+  attempt: {
+    attempt_id: string;
+    test_id: string;
+    title: string;
+    subject: string;
+    category: string;
+    correct_count: number;
+    answered_count: number;
+    total_questions: number;
+    accuracy: number;
+    score: number;
+    hint_count: number;
+    hint_penalty: number;
+    elapsed_seconds: number;
+    submitted_at: string;
+  };
+  summary: {
+    correct_count: number;
+    wrong_count: number;
+    unanswered_count: number;
+    logged_questions: number;
+    avg_seconds_per_question: number;
+    slowest_seconds: number;
+    fastest_seconds: number;
+    total_log_seconds: number;
+  };
+  questions: AttemptQuestionDetail[];
+};
+
 export type RemoteTest = {
   test_id: string;
   category_id?: string;
@@ -306,6 +357,16 @@ export async function loadRemoteAttempts() {
   if (error) throw error;
   if (data?.error) throw new Error(data.error);
   return (data?.data ?? []) as RemoteAttempt[];
+}
+
+export async function loadAttemptDetail(attemptId: string) {
+  const { data, error } = await supabase.functions.invoke("skillquest-api", {
+    headers: await getSessionHeaders(),
+    body: { action: "attempt_detail", attempt_id: attemptId },
+  });
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+  return data?.data as AttemptDetail;
 }
 
 export async function loadDashboardSummary() {

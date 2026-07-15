@@ -189,6 +189,21 @@ Deno.serve(async (request: Request) => {
     return json(origin, { data });
   }
 
+  if (body.action === "attempt_detail") {
+    const attemptId = body.attempt_id;
+    if (!isUuid(attemptId)) return json(origin, { error: "INVALID_ATTEMPT" }, 400);
+    const { data, error } = await admin.rpc("get_attempt_detail_service", {
+      p_user_id: authData.user.id,
+      p_attempt_id: attemptId,
+    });
+    if (error) {
+      const message = error.message ?? "";
+      if (message.includes("ATTEMPT_NOT_FOUND")) return json(origin, { error: "ATTEMPT_NOT_FOUND" }, 404);
+      return json(origin, { error: "ATTEMPT_DETAIL_UNAVAILABLE" }, 503);
+    }
+    return json(origin, { data });
+  }
+
   if (body.action === "dashboard_summary") {
     const { data, error } = await admin.rpc("get_dashboard_summary_service", {
       p_user_id: authData.user.id,

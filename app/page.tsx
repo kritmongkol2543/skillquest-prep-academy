@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ensureAnonymousSession,
+  loadAttemptDetail,
   loadDashboardSummary,
   loadLearningInsights,
   loadRemoteTest,
@@ -18,6 +19,8 @@ import {
   submitRemoteAttempt,
   type AttemptResult,
   type ActiveTestLock,
+  type AttemptDetail,
+  type AttemptQuestionDetail,
   type DashboardSummary,
   type HintResult,
   type LearningInsights,
@@ -154,6 +157,7 @@ function Glyph({ children }: { children: React.ReactNode }) {
 }
 
 type HistoryRow = {
+  id: string;
   date: string;
   subject: string;
   set: string;
@@ -163,14 +167,14 @@ type HistoryRow = {
   status: string;
 };
 
-function HistoryTable({ rows }: { rows: HistoryRow[] }) {
+function HistoryTable({ rows, onOpenDetail }: { rows: HistoryRow[]; onOpenDetail: (attemptId: string) => void }) {
   if (!rows.length) {
     return <div className="table-empty history-empty">ยังไม่มีประวัติที่ส่งสำเร็จ เมื่อทำข้อสอบครบและกดส่ง ระบบจะแสดงผลล่าสุดไว้ที่นี่อัตโนมัติ</div>;
   }
   return <div className="history-table">
-    <div className="history-head"><span>วันที่</span><span>ชุดข้อสอบ</span><span>คะแนน</span><span>ความแม่นยำ</span><span>เวลาที่ใช้</span><span>สถานะ</span></div>
-    {rows.map((h) => <div className="history-row" key={`${h.set}-${h.date}-${h.score}`}>
-      <span>{h.date}</span><span><b>{h.subject}</b><small>{h.set}</small></span><span>{h.score}</span><span>{h.accuracy}</span><span>{h.time}</span><span className="status success">{h.status}</span>
+    <div className="history-head"><span>วันที่</span><span>ชุดข้อสอบ</span><span>คะแนน</span><span>ความแม่นยำ</span><span>เวลาที่ใช้</span><span>Insight</span></div>
+    {rows.map((h) => <div className="history-row" key={h.id}>
+      <span>{h.date}</span><span><b>{h.subject}</b><small>{h.set}</small></span><span>{h.score}</span><span>{h.accuracy}</span><span>{h.time}</span><span><button className="row-action" onClick={() => onOpenDetail(h.id)}>ดู Insight</button></span>
     </div>)}
   </div>;
 }
@@ -209,6 +213,10 @@ export default function Home() {
   const [loadingQuestions, setLoadingQuestions] = useState(false);
   const [dashboardSummary, setDashboardSummary] = useState<DashboardSummary | null>(null);
   const [learningInsights, setLearningInsights] = useState<LearningInsights | null>(null);
+  const [attemptDetail, setAttemptDetail] = useState<AttemptDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState("");
+  const [selectedLogQuestion, setSelectedLogQuestion] = useState<AttemptQuestionDetail | null>(null);
   const [result, setResult] = useState<AttemptResult | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [questionSeconds, setQuestionSeconds] = useState<Record<number, number>>({});
@@ -472,6 +480,7 @@ export default function Home() {
     .slice()
     .sort((a, b) => new Date(b.submitted_at).getTime() - new Date(a.submitted_at).getTime())
     .map((item) => ({
+    id: item.id,
     date: new Intl.DateTimeFormat("th-TH", { day: "numeric", month: "short" }).format(new Date(item.submitted_at)),
     subject: item.Test?.Subject ?? "แบบทดสอบ",
     set: item.Test?.Question ?? "ชุดฝึก",
@@ -494,6 +503,49 @@ export default function Home() {
   const insightPaceLabel = averageQuestionSeconds
     ? averageQuestionSeconds <= speedTarget ? "อยู่ในจังหวะดี" : averageQuestionSeconds <= 120 ? "ควรเร่งจังหวะเล็กน้อย" : "ช้ากว่าเป้าหมายมาก"
     : "รอข้อมูลจาก Log";
+
+  const detailQuestions = attemptDetail?.questions ?? [];
+  const detailSlowest = detailQuestions.reduce<AttemptQuestionDetail | null>((slowest, item) => (
+    !slowest || item.duration_seconds > slowest.duration_seconds ? item : slowest
+  ), null);
+  const detailWrongQuestions = detailQuestions.filter((item) => item.status === "incorrect");
+  const detailCorrectQuestions = detailQuestions.filter((item) => item.status === "correct");
+
+  function questionResultLabel(status: string) {
+    if (status === "correct") return "ถูก";
+    if (status === "incorrect") return "ผิด";
+    if (status === "skipped") return "ข้าม";
+    return "บันทึกแล้ว";
+  }
+
+  function questionInsightText(item: AttemptQuestionDetail) {
+    if (item.status === "incorrect" && item.duration_seconds >= 90) return "ใช้เวลานานแล้วยังผิด ควรทบทวนวิธีคิดทีละขั้น";
+    if (item.status === "incorrect") return "ตอบผิด ควรดูเฉลยและลองทำซ้ำโดยไม่ดูคำตอบ";
+    if (item.duration_seconds >= 120) return "ตอบถูกแต่ใช้เวลานาน ลองหาวิธีลัดหรือฝึกจับ pattern";
+    if (item.used_hint) return "ทำถูก/บันทึกแล้วแต่ใช้ Hint ควรลองทำซ้ำแบบไม่ใช้ตัวช่วย";
+    return "จังหวะดี เก็บไว้เป็นข้อที่ทำได้มั่นใจ";
+  }
+
+  async function openAttemptDetail(attemptId: string) {
+    if (backendStatus !== "online") {
+      setBackendMessage("ต้องเชื่อมต่อ Supabase ก่อนจึงจะดู Insight รายรอบได้");
+      return;
+    }
+    setDetailLoading(true);
+    setDetailError("");
+    setSelectedLogQuestion(null);
+    try {
+      const detail = await loadAttemptDetail(attemptId);
+      setAttemptDetail(detail);
+    } catch (error) {
+      setAttemptDetail(null);
+      setDetailError(error instanceof Error && error.message === "ATTEMPT_NOT_FOUND"
+        ? "ไม่พบผลสอบรอบนี้แล้ว"
+        : "โหลด Insight รอบนี้ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง");
+    } finally {
+      setDetailLoading(false);
+    }
+  }
 
   function statusFor(index: number): QuestionLogStatus {
     if (answersRef.current[index] !== undefined) return statesRef.current[index] === "changed_answer" ? "changed_answer" : "answered";
@@ -938,14 +990,14 @@ export default function Home() {
             <div className="subject-list">{subjectMastery.map((s) => <div className="subject-row" key={s.name}><div><b>{s.name}</b><small className="positive">{s.delta}</small></div><div className="progress"><i className={s.color} style={{ width: `${s.mastery}%` }} /></div><strong>{s.mastery}%</strong></div>)}</div>
           </section>
 
-          <section className="panel history-card"><div className="section-heading"><div><h2>ประวัติล่าสุด</h2><p>แสดงเฉพาะชุดที่ส่งสำเร็จ เรียงจากล่าสุดไปเก่าสุด</p></div><button className="text-button" onClick={() => requestNavigation("history")}>ดูทั้งหมด</button></div><HistoryTable rows={remoteHistory.slice(0, 5)} /></section>
+          <section className="panel history-card"><div className="section-heading"><div><h2>ประวัติล่าสุด</h2><p>แสดงเฉพาะชุดที่ส่งสำเร็จ เรียงจากล่าสุดไปเก่าสุด</p></div><button className="text-button" onClick={() => requestNavigation("history")}>ดูทั้งหมด</button></div><HistoryTable rows={remoteHistory.slice(0, 5)} onOpenDetail={(id) => void openAttemptDetail(id)} /></section>
 
           {backendMessage && <p className="system-note" role="status">{backendMessage}</p>}
         </div>}
 
         {view === "history" && <div className="page history-page">
           <div className="welcome"><div><p>ประวัติการฝึก</p><h1>ผลสอบที่ส่งสำเร็จทั้งหมด</h1><span>เรียงจากวันล่าสุดไปเก่าสุด และไม่แสดงชุดที่ถูกยกเลิกหรือพักค้างไว้</span></div><button className="secondary" onClick={() => requestNavigation("dashboard")}>กลับภาพรวม</button></div>
-          <section className="panel history-card"><div className="section-heading"><div><h2>รายการประวัติ</h2><p>{remoteHistory.length ? `${remoteHistory.length} ชุดที่ส่งสำเร็จ` : "ยังไม่มีผลสอบที่ส่งสำเร็จ"}</p></div><span className="updated">{backendStatus === "online" ? "ข้อมูลล่าสุดจาก Supabase" : "ออฟไลน์"}</span></div><HistoryTable rows={remoteHistory} /></section>
+          <section className="panel history-card"><div className="section-heading"><div><h2>รายการประวัติ</h2><p>{remoteHistory.length ? `${remoteHistory.length} ชุดที่ส่งสำเร็จ` : "ยังไม่มีผลสอบที่ส่งสำเร็จ"}</p></div><span className="updated">{backendStatus === "online" ? "ข้อมูลล่าสุดจาก Supabase" : "ออฟไลน์"}</span></div><HistoryTable rows={remoteHistory} onOpenDetail={(id) => void openAttemptDetail(id)} /></section>
         </div>}
 
         {view === "exam" && <div className="exam-page">
@@ -998,6 +1050,46 @@ export default function Home() {
       {cancelOpen && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="cancel-title"><div className="modal wide"><span className="modal-icon warning">!</span><h2 id="cancel-title">ยกเลิกแบบทดสอบนี้?</h2><p>คำตอบและ Log ของรอบนี้จะไม่ถูกนำไปเป็นผลสอบหรือประวัติการฝึก และจะเริ่มต่อจากจุดเดิมไม่ได้</p><div className="resume-summary detailed"><span><small>ชุดข้อสอบ</small><b>{activeTestTitle}</b></span><span><small>ทำไปแล้ว</small><b>{answeredCount}/{questions.length} ข้อ</b></span><span><small>เวลาที่ทำจริง</small><b>{formatDurationLong(seconds)}</b></span><span><small>ข้อที่เคยเปิดดู</small><b>{touchedQuestions} ข้อ</b></span></div><button className="danger-button full" disabled={cancelling} onClick={() => void cancelAttempt()}>{cancelling ? "กำลังยกเลิก…" : "ยืนยัน ยกเลิกแบบทดสอบ"}</button><button className="danger-link neutral" disabled={cancelling} onClick={() => setCancelOpen(false)}>กลับไปทำข้อสอบต่อ</button></div></div>}
       {activeTestLock && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="lock-title"><div className="modal wide lock-modal"><span className="modal-icon warning">!</span><p className="modal-kicker">ระบบใช้ได้ทีละคน</p><h2 id="lock-title">มีคนกำลังทำข้อสอบอยู่</h2><p>ยังเริ่มชุดใหม่ไม่ได้จนกว่ารอบที่กำลังทำอยู่จะส่งผลหรือถูกยกเลิก</p><div className="resume-summary detailed"><span><small>วิชา / ชุด</small><b>{activeTestLock.title}</b></span><span><small>สถานะ</small><b>{activeTestLock.status === "paused" ? "พักข้อสอบ" : "กำลังทำข้อสอบ"}</b></span><span><small>ทำไปแล้ว</small><b>{activeTestLock.answered_count}/{activeTestLock.total_questions} ข้อ</b></span><span><small>เวลาที่ใช้</small><b>{formatDurationLong(activeTestLock.elapsed_seconds)}</b></span></div><button className="primary full" onClick={() => { setActiveTestLock(null); void confirmStartExam(); }}>ตรวจสอบอีกครั้ง</button><button className="danger-link neutral" onClick={() => { setActiveTestLock(null); setStartOpen(false); }}>กลับไปเลือกชุดข้อสอบ</button></div></div>}
       {submitOpen && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="submit-title"><div className="modal"><span className="modal-icon warning">!</span><h2 id="submit-title">ยังเหลือ {remaining} ข้อ</h2><p>ตรวจคำตอบให้ครบก่อนส่ง เพื่อให้ระบบวิเคราะห์ผลได้แม่นยำ</p><div className="missing-list">{questions.map((_, i) => answers[i] === undefined && <button key={i} onClick={() => { setSubmitOpen(false); goTo(i); }}>ข้อ {i + 1}</button>)}</div><button className="primary full" onClick={() => { setSubmitOpen(false); const n = questions.findIndex((_, i) => answers[i] === undefined); if (n >= 0) goTo(n); }}>ไปข้อที่ยังไม่ตอบ</button><button className="danger-link neutral" onClick={() => setSubmitOpen(false)}>กลับไปตรวจคำตอบ</button></div></div>}
+      {(detailLoading || detailError || attemptDetail) && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="attempt-detail-title"><div className="modal insight-modal">
+        <div className="detail-header"><div><p className="modal-kicker">Insight เฉพาะรอบสอบ</p><h2 id="attempt-detail-title">{attemptDetail?.attempt.title ?? "กำลังโหลดรายละเอียด"}</h2><span>{attemptDetail ? `ส่งเมื่อ ${new Intl.DateTimeFormat("th-TH", { dateStyle: "medium", timeStyle: "short" }).format(new Date(attemptDetail.attempt.submitted_at))}` : "ดึงเฉพาะ Log ของรอบนี้จาก Supabase"}</span></div><button className="icon-button" aria-label="ปิด Insight" onClick={() => { setAttemptDetail(null); setDetailError(""); setSelectedLogQuestion(null); }}>×</button></div>
+        {detailLoading && <div className="detail-loading">กำลังโหลด Dashboard ของรอบสอบนี้…</div>}
+        {detailError && !detailLoading && <div className="table-empty">{detailError}</div>}
+        {attemptDetail && !detailLoading && <div className="attempt-dashboard">
+          <div className="attempt-score-card">
+            <div><span>คะแนน</span><b>{attemptDetail.attempt.correct_count}/{attemptDetail.attempt.total_questions}</b><small>คะแนนหลังหัก Hint {Number(attemptDetail.attempt.score).toFixed(1)}</small></div>
+            <div><span>ความแม่นยำ</span><b>{Math.round(Number(attemptDetail.attempt.accuracy))}%</b><small>ผิด {attemptDetail.summary.wrong_count} ข้อ</small></div>
+            <div><span>เวลารวม</span><b>{formatDurationLong(attemptDetail.attempt.elapsed_seconds)}</b><small>เฉลี่ย {formatPace(attemptDetail.summary.avg_seconds_per_question)}</small></div>
+            <div><span>ข้อที่ช้าที่สุด</span><b>{detailSlowest ? `ข้อ ${detailSlowest.position}` : "—"}</b><small>{detailSlowest ? formatDurationLong(detailSlowest.duration_seconds) : "ยังไม่มี Log"}</small></div>
+          </div>
+          <div className="attempt-split">
+            <article>
+              <h3>ภาพรวมรอบนี้</h3>
+              <div className="mini-bars"><span><b>ถูก</b><i style={{ width: `${Math.max(4, (detailCorrectQuestions.length / Math.max(1, detailQuestions.length)) * 100)}%` }} />{detailCorrectQuestions.length} ข้อ</span><span><b>ผิด</b><i className="bad" style={{ width: `${Math.max(4, (detailWrongQuestions.length / Math.max(1, detailQuestions.length)) * 100)}%` }} />{detailWrongQuestions.length} ข้อ</span><span><b>ใช้ Hint</b><i className="warn" style={{ width: `${Math.max(4, (attemptDetail.attempt.hint_count / 2) * 100)}%` }} />{attemptDetail.attempt.hint_count} ครั้ง</span></div>
+            </article>
+            <article>
+              <h3>คำแนะนำ</h3>
+              <p>{detailWrongQuestions.length ? `เริ่มทบทวนจากข้อที่ผิด ${detailWrongQuestions.length} ข้อก่อน โดยเฉพาะข้อที่ใช้เวลานานและผิดพร้อมกัน` : "รอบนี้ยังไม่พบข้อผิด ให้ใช้ตารางด้านล่างดูข้อที่ใช้เวลานานเพื่อเพิ่มความเร็ว"}</p>
+            </article>
+          </div>
+          <div className="question-log-table">
+            <div className="question-log-head"><span>ข้อ</span><span>ผล</span><span>เวลา</span><span>คำตอบที่เลือก</span><span>Insight</span></div>
+            {attemptDetail.questions.map((item) => <button className={`question-log-row ${item.status === "incorrect" ? "wrong" : item.status === "correct" ? "right" : ""}`} key={item.log_id} onClick={() => setSelectedLogQuestion(item)}>
+              <span>ข้อ {item.position}</span><span>{questionResultLabel(item.status)}</span><span>{formatDurationLong(item.duration_seconds)}</span><span>{item.selected_answer ? `${item.selected_choice !== null ? String.fromCharCode(65 + item.selected_choice) + ". " : ""}${item.selected_answer}` : "—"}</span><span>{questionInsightText(item)}</span>
+            </button>)}
+          </div>
+        </div>}
+      </div></div>}
+      {selectedLogQuestion && <div className="modal-backdrop nested" role="dialog" aria-modal="true" aria-labelledby="question-insight-title"><div className="modal question-insight-modal">
+        <div className="detail-header"><div><p className="modal-kicker">Insight รายข้อ</p><h2 id="question-insight-title">ข้อ {selectedLogQuestion.position} · {questionResultLabel(selectedLogQuestion.status)}</h2><span>{selectedLogQuestion.subject} · ชุดที่ {selectedLogQuestion.category} · ใช้เวลา {formatDurationLong(selectedLogQuestion.duration_seconds)}</span></div><button className="icon-button" aria-label="ปิด Insight รายข้อ" onClick={() => setSelectedLogQuestion(null)}>×</button></div>
+        <div className={`result-strip ${selectedLogQuestion.status === "incorrect" ? "wrong" : "right"}`}><b>{questionInsightText(selectedLogQuestion)}</b><span>{selectedLogQuestion.used_hint ? `ใช้ Hint ${selectedLogQuestion.hint_count} ครั้งในข้อนี้` : "ไม่ใช้ Hint ในข้อนี้"}</span></div>
+        <article className="question-review"><h3>โจทย์</h3><p>{selectedLogQuestion.question}</p></article>
+        <div className="answer-review-grid">
+          <div><span>คำตอบที่เลือก</span><b>{selectedLogQuestion.selected_answer ? `${selectedLogQuestion.selected_choice !== null ? String.fromCharCode(65 + selectedLogQuestion.selected_choice) + ". " : ""}${selectedLogQuestion.selected_answer}` : "ไม่ได้เลือกคำตอบ"}</b></div>
+          <div><span>เฉลยที่ถูก</span><b>{selectedLogQuestion.correct_answer ? `${selectedLogQuestion.correct_choice !== null ? String.fromCharCode(65 + selectedLogQuestion.correct_choice) + ". " : ""}${selectedLogQuestion.correct_answer}` : "ไม่มีข้อมูลเฉลย"}</b></div>
+        </div>
+        <article className="explanation-card"><h3>คำอธิบาย</h3><p>{selectedLogQuestion.explanation || "ยังไม่มีคำอธิบายสำหรับข้อนี้ในฐานข้อมูล"}</p></article>
+        <button className="primary full" onClick={() => setSelectedLogQuestion(null)}>กลับไปดู Dashboard รอบนี้</button>
+      </div></div>}
       {result && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="result-title"><div className="modal"><span className="modal-icon result">✓</span><h2 id="result-title">ตรวจคะแนนเรียบร้อย</h2><p>คุณตอบถูก <b>{result.correct_count} จาก {result.total_questions} ข้อ</b> คะแนนหลังหัก Hint <b>{Number(result.score).toFixed(1)}</b></p><div className="resume-summary"><span><small>Hint ที่ใช้</small><b>{result.hint_count} ครั้ง (-{Number(result.hint_penalty).toFixed(1)})</b></span><span><small>ความแม่นยำ</small><b>{Math.round(Number(result.accuracy))}%</b></span></div><button className="primary full" onClick={() => { setResult(null); setView("dashboard"); }}>กลับไปดูพัฒนาการ</button></div></div>}
     </main>
   );
