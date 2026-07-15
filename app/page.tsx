@@ -391,7 +391,12 @@ export default function Home() {
     let disposed = false;
     const sendHeartbeat = async () => {
       try {
-        await heartbeatRemoteTest(sessionId, clientInstanceId);
+        const heartbeat = await heartbeatRemoteTest(sessionId, clientInstanceId);
+        if (heartbeat.active === false || heartbeat.status === "cancelled") {
+          resetAttemptState();
+          setView("dashboard");
+          setBackendMessage("รอบทำข้อสอบนี้สิ้นสุดแล้ว จึงไม่สามารถทำต่อได้");
+        }
       } catch (error) {
         if (disposed) return;
         if (error instanceof Error && error.message === "TEST_NOT_ACTIVE") {
@@ -628,7 +633,21 @@ export default function Home() {
       setNavigationTarget(null);
       setView(destination);
       setBackendMessage("");
-    } catch {
+    } catch (error) {
+      // A page-exit heartbeat or another tab may have already cancelled this
+      // session. Treat that response as the desired end state so the modal
+      // cannot trap the user with a stale local attempt.
+      if (error instanceof Error && error.message === "TEST_NOT_ACTIVE") {
+        resetAttemptState();
+        setRunning(false);
+        setPauseStartedAt("");
+        setResumeOpen(false);
+        setCancelOpen(false);
+        setNavigationTarget(null);
+        setView(destination);
+        setBackendMessage("แบบทดสอบนี้ถูกยกเลิกไปแล้ว");
+        return;
+      }
       setBackendMessage("ยกเลิกข้อสอบยังไม่สำเร็จ ระบบคงรอบเดิมไว้เพื่อไม่ให้ข้อมูลสูญหาย กรุณาตรวจสอบการเชื่อมต่อแล้วลองอีกครั้ง");
     } finally {
       setCancelling(false);

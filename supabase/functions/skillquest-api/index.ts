@@ -110,7 +110,9 @@ Deno.serve(async (request: Request) => {
     });
     if (error) {
       const message = error.message ?? "";
-      if (message.includes("SET_NOT_ACTIVE") || message.includes("SET_NOT_AVAILABLE")) return json(origin, { error: "TEST_NOT_ACTIVE" }, 409);
+      if (message.includes("SET_NOT_ACTIVE") || message.includes("SET_NOT_AVAILABLE")) {
+        return json(origin, { data: { test_id: testId, status: "cancelled", active: false, reason: "TEST_NOT_ACTIVE" } });
+      }
       return json(origin, { error: "HEARTBEAT_FAILED" }, 503);
     }
     return json(origin, { data });
@@ -148,7 +150,11 @@ Deno.serve(async (request: Request) => {
     });
     if (error) {
       const message = error.message ?? "";
-      if (message.includes("SET_NOT_AVAILABLE") || message.includes("SET_NOT_ACTIVE")) return json(origin, { error: "TEST_NOT_ACTIVE" }, 409);
+      if (message.includes("SET_NOT_AVAILABLE") || message.includes("SET_NOT_ACTIVE")) {
+        // Cancellation is intentionally idempotent. A page-exit request or the
+        // expiry cron may have won the race before this click arrived.
+        return json(origin, { data: { test_id: testId, status: "cancelled", already_cancelled: true } });
+      }
       return json(origin, { error: "CANCEL_FAILED" }, 503);
     }
     return json(origin, { data });
