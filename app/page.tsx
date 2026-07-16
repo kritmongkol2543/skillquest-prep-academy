@@ -246,9 +246,13 @@ function HistoryTable({ rows, onOpenDetail }: { rows: HistoryRow[]; onOpenDetail
 }
 
 function RichContentView({ content, fallback, variant }: { content?: RichTextContent | null; fallback: string; variant: "question" | "choice" }) {
+  if (variant === "question") {
+    return <div className="question-prompt plain"><p>{fallback}</p></div>;
+  }
+
   const blocks = Array.isArray(content?.blocks) ? content.blocks : [];
   if (!blocks.length) {
-    return variant === "question" ? <div className="question-prompt"><h2>{fallback}</h2></div> : <span className="choice-content">{fallback}</span>;
+    return <span className="choice-content">{fallback}</span>;
   }
 
   const rendered = blocks.map((block, index) => {
@@ -261,11 +265,10 @@ function RichContentView({ content, fallback, variant }: { content?: RichTextCon
     }
     const text = block.text?.trim();
     if (!text) return null;
-    if (variant === "question" && index === 0) return <h2 key={`p-${index}`}>{text}</h2>;
     return <p key={`p-${index}`}>{text}</p>;
   });
 
-  return <div className={variant === "question" ? "question-prompt structured" : "choice-content rich-choice"}>{rendered}</div>;
+  return <div className="choice-content rich-choice">{rendered}</div>;
 }
 
 function localDateKey(date: Date) {

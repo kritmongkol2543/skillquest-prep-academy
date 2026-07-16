@@ -259,6 +259,7 @@ h1, h2, p { text-wrap: pretty; }
 .question-card { margin-top: 10px; padding: 34px 40px 38px; background: #fff; border-radius: 14px; }
 .question-card > small { color: var(--green); font-weight: 700; }
 .question-prompt { margin: 20px 0 9px; max-width: 760px; }
+.question-prompt.plain p { margin: 0; color: var(--ink); font-size: 16px; line-height: 1.82; font-weight: 500; white-space: pre-wrap; overflow-wrap: anywhere; text-wrap: pretty; }
 .question-prompt h2 { margin: 0; color: var(--navy); font-size: 22px; line-height: 1.62; letter-spacing: -.012em; font-weight: 760; text-wrap: pretty; overflow-wrap: anywhere; }
 .question-prompt.structured { max-width: 780px; }
 .question-prompt.structured h2 { font-size: 21px; line-height: 1.55; }
