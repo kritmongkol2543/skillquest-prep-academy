@@ -65,6 +65,7 @@ const fallbackTest: RemoteTest = {
   subject: "คณิตศาสตร์",
   subject_id: "",
   category: "ชุดตัวอย่าง",
+  priority: 999,
   level: "ระดับพื้นฐาน",
   duration: 1800,
   question_count: 10,
@@ -112,6 +113,10 @@ function categoryLevelRank(category: string) {
 }
 
 function compareCategoryOptions(a: RemoteTest, b: RemoteTest) {
+  const priorityA = Number.isFinite(Number(a.priority)) ? Number(a.priority) : Number.POSITIVE_INFINITY;
+  const priorityB = Number.isFinite(Number(b.priority)) ? Number(b.priority) : Number.POSITIVE_INFINITY;
+  if (priorityA !== priorityB) return priorityA - priorityB;
+
   const rankDiff = categoryLevelRank(a.category) - categoryLevelRank(b.category);
   if (rankDiff !== 0) return rankDiff;
 
@@ -123,7 +128,8 @@ function compareCategoryOptions(a: RemoteTest, b: RemoteTest) {
 }
 
 function formatLevelName(category: string) {
-  const matched = CATEGORY_LEVEL_ORDER.find((level) => category.toLowerCase().includes(level));
+  const normalized = category.toLowerCase().trim();
+  const matched = CATEGORY_LEVEL_ORDER.find((level) => normalized === level);
   if (!matched) return category;
   return matched[0].toUpperCase() + matched.slice(1);
 }
@@ -1049,7 +1055,7 @@ export default function Home() {
                   onChange={(event) => chooseTestOption(event.target.value)}
                   aria-label="เลือกระดับข้อสอบ"
                 >
-                  {categoryOptions.map((test) => <option key={test.test_id} value={test.test_id}>ระดับ {formatLevelName(test.category)} ({test.question_count} ข้อ)</option>)}
+                  {categoryOptions.map((test) => <option key={test.test_id} value={test.test_id}>ระดับ {test.category} ({test.question_count} ข้อ)</option>)}
                 </select>
               </label>
               <button disabled={!examReady} onClick={() => void requestStartExam()}>{loadingQuestions ? "กำลังโหลด…" : "เริ่มระดับนี้"}</button>

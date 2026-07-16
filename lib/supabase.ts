@@ -82,6 +82,7 @@ export type RemoteTest = {
   subject: string;
   subject_id?: string;
   category: string;
+  priority?: number | null;
   level: string;
   duration: number;
   question_count: number;
