@@ -213,9 +213,8 @@ function safeDirectImageUrl(rawUrl: string | null | undefined) {
 
 function proxiedImageUrl(kind: "question" | "answer", id: string, rawUrl: string | null | undefined) {
   if (!rawUrl) return "";
-  if (!isExternalImage(rawUrl)) return rawUrl;
-  const base = "https://pttsjpmwvppkaacgzdqh.supabase.co/functions/v1/skillquest-image";
-  return `${base}?kind=${kind}&id=${encodeURIComponent(id)}`;
+  if (!isExternalImage(rawUrl)) return rawUrl.trim();
+  return safeDirectImageUrl(rawUrl);
 }
 
 function handleImageFallback(rawUrl: string | null | undefined) {
