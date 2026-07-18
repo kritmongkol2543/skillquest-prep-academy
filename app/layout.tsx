@@ -17,7 +17,9 @@ const csp = [
   "default-src 'self'",
   "script-src 'self' 'unsafe-inline'",
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data:",
+  // Exam images are supplied through admin-managed Question/Answer URLs.
+  // Keep scripts and connections locked down, but permit those external image origins.
+  "img-src 'self' data: blob: https: http:",
   "font-src 'self' data:",
   "connect-src 'self' https://pttsjpmwvppkaacgzdqh.supabase.co wss://pttsjpmwvppkaacgzdqh.supabase.co",
   "object-src 'none'",
