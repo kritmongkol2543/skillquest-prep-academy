@@ -2,7 +2,12 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.110.2";
 
 const ALLOWED_ORIGIN = "https://skillquest-player-hub.kritmongkol2543.chatgpt.site";
-const ALLOWED_HOSTS = new Set(["quiz.engineer-tutor.com", "pttsjpmwvppkaacgzdqh.supabase.co"]);
+const ALLOWED_HOSTS = new Set([
+  "quiz.engineer-tutor.com",
+  "pttsjpmwvppkaacgzdqh.supabase.co",
+  "www.trueplookpanya.com",
+  "trueplookpanya.com",
+]);
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function isAllowedOrigin(origin: string | null) {

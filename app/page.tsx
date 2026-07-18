@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { SyntheticEvent } from "react";
 import {
   ensureAnonymousSession,
   loadAttemptDetail,
@@ -202,11 +203,28 @@ function isExternalImage(url: string | null | undefined) {
   return Boolean(url && /^https?:\/\//i.test(url));
 }
 
+function safeDirectImageUrl(rawUrl: string | null | undefined) {
+  if (!rawUrl) return "";
+  const trimmed = rawUrl.trim();
+  if (!trimmed) return "";
+  if (/^http:\/\//i.test(trimmed)) return trimmed.replace(/^http:\/\//i, "https://");
+  return trimmed;
+}
+
 function proxiedImageUrl(kind: "question" | "answer", id: string, rawUrl: string | null | undefined) {
   if (!rawUrl) return "";
   if (!isExternalImage(rawUrl)) return rawUrl;
   const base = "https://pttsjpmwvppkaacgzdqh.supabase.co/functions/v1/skillquest-image";
   return `${base}?kind=${kind}&id=${encodeURIComponent(id)}`;
+}
+
+function handleImageFallback(rawUrl: string | null | undefined) {
+  return (event: SyntheticEvent<HTMLImageElement>) => {
+    const fallback = safeDirectImageUrl(rawUrl);
+    if (fallback && event.currentTarget.src !== fallback) {
+      event.currentTarget.src = fallback;
+    }
+  };
 }
 
 function Glyph({ children }: { children: React.ReactNode }) {
@@ -1183,7 +1201,7 @@ export default function Home() {
               <article className="question-card">
                 <small>{currentQuestion.subject} · ระดับ {formatLevelName(currentQuestion.category)} · {currentQuestion.level}</small>
                 <RichContentView content={currentQuestion.content} fallback={currentQuestion.q} variant="question" />
-                {currentQuestion.image && <img className="question-image" src={proxiedImageUrl("question", currentQuestion.id, currentQuestion.image)} alt={`รูปประกอบข้อ ${current + 1}`} loading="lazy" referrerPolicy="no-referrer" />}
+                {currentQuestion.image && <img className="question-image" src={proxiedImageUrl("question", currentQuestion.id, currentQuestion.image)} alt={`รูปประกอบข้อ ${current + 1}`} loading="lazy" referrerPolicy="no-referrer" onError={handleImageFallback(currentQuestion.image)} />}
                 <p>เลือกคำตอบที่ถูกต้องที่สุดเพียงข้อเดียว</p>
                 <div className="assist-row"><button className="hint-button" disabled={hinting || totalHintsUsed >= 2 || currentHints.length > 0 || backendStatus !== "online"} onClick={() => void handleHint()}>{hinting ? "กำลังตัดตัวเลือก…" : `Hint ${totalHintsUsed}/2`}</button><span>ตัดตัวเลือกผิด 2 ข้อ · หัก {hintPenalty.toFixed(1)} คะแนน</span></div>
                 {currentHints.length > 0 && <div className="hint-stack" aria-live="polite">{currentHints.map((hint) => <p key={hint.hint_id}>{hint.hint_text}</p>)}</div>}
@@ -1194,7 +1212,7 @@ export default function Home() {
                   const answerImage = currentQuestion.choiceImages[i];
                   return <button key={`${currentQuestion.id}-${i}`} disabled={eliminated} className={`${answers[current] === i ? "selected" : ""} ${eliminated ? "eliminated" : ""}`} onClick={() => choose(i)}>
                     <span className="choice-letter">{String.fromCharCode(65 + i)}</span>
-                    <span className="choice-copy"><RichContentView content={currentQuestion.choiceContents[i]} fallback={choice} variant="choice" />{answerImageId && answerImage && <img className="choice-image" src={proxiedImageUrl("answer", answerImageId, answerImage)} alt={`รูปประกอบตัวเลือก ${String.fromCharCode(65 + i)}`} loading="lazy" referrerPolicy="no-referrer" />}</span>
+                    <span className="choice-copy"><RichContentView content={currentQuestion.choiceContents[i]} fallback={choice} variant="choice" />{answerImageId && answerImage && <img className="choice-image" src={proxiedImageUrl("answer", answerImageId, answerImage)} alt={`รูปประกอบตัวเลือก ${String.fromCharCode(65 + i)}`} loading="lazy" referrerPolicy="no-referrer" onError={handleImageFallback(answerImage)} />}</span>
                     <i>{eliminated ? "ตัดออก" : answers[current] === i ? "✓" : ""}</i>
                   </button>;
                 })}</div>
