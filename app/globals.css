@@ -268,7 +268,7 @@ h1, h2, p { text-wrap: pretty; }
 .question-prompt li > span { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 8px; background: #eef2f5; color: var(--navy); font-size: 12px; font-weight: 800; font-variant-numeric: tabular-nums; }
 .question-prompt li p { margin: 1px 0 0; color: var(--ink); font-size: 16px; line-height: 1.78; overflow-wrap: anywhere; }
 .question-card > p { margin: 0 0 24px; color: var(--muted); font-size: 12px; }
-.question-image { display: block; width: min(100%, 680px); max-height: 520px; object-fit: contain; margin: 18px 0 10px; border-radius: 10px; border: 1px solid var(--line); background: #fff; }
+.question-image { display: block; max-width: 100%; height: auto; margin: 18px 0 10px; border-radius: 10px; border: 1px solid var(--line); background: #fff; }
 .assist-row { margin: -8px 0 18px; min-height: 38px; display: flex; align-items: center; gap: 12px; }
 .assist-row span { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 .hint-button { min-height: 36px; border: 1px solid #d8c5a3; border-radius: 9px; padding: 0 13px; background: #fff8ed; color: #8a551d; font-size: 12px; font-weight: 720; cursor: pointer; transition: background 180ms var(--ease), border-color 180ms var(--ease); }
@@ -285,7 +285,7 @@ h1, h2, p { text-wrap: pretty; }
 .choice-content p { margin: 0; line-height: 1.62; }
 .choice-content ol { margin: 0; padding-left: 20px; }
 .choice-content li { padding-left: 2px; }
-.choice-image { display: block; max-width: min(100%, 520px); max-height: 260px; object-fit: contain; margin-top: 8px; border-radius: 8px; border: 1px solid var(--line); background: #fff; }
+.choice-image { display: block; max-width: 100%; height: auto; margin-top: 8px; border-radius: 8px; border: 1px solid var(--line); background: #fff; }
 .choices button i { padding-top: 6px; font-style: normal; color: var(--green); text-align: center; }
 .choices button.selected { border-color: var(--green); background: #f0f6f3; }
 .choices button.selected > .choice-letter { background: var(--green); color: #fff; }
