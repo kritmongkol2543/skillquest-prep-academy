@@ -211,6 +211,17 @@ function safeDirectImageUrl(rawUrl: string | null | undefined) {
   return trimmed;
 }
 
+function isImageSourceLink(value: string | null | undefined) {
+  const raw = value?.trim();
+  if (!raw || !/^https?:\/\//i.test(raw)) return false;
+  try {
+    const url = new URL(raw);
+    return /\.(?:apng|avif|bmp|gif|jpe?g|png|svg|webp)$/i.test(url.pathname);
+  } catch {
+    return false;
+  }
+}
+
 function proxiedImageUrl(kind: "question" | "answer", id: string, rawUrl: string | null | undefined) {
   if (!rawUrl) return "";
   if (!isExternalImage(rawUrl)) return rawUrl.trim();
@@ -1284,7 +1295,7 @@ export default function Home() {
           <div><span>คำตอบที่เลือก</span><b>{selectedLogQuestion.selected_answer || "ไม่ได้เลือกคำตอบ"}</b></div>
           <div><span>เฉลยที่ถูก</span><b>{selectedLogQuestion.correct_answer || "ไม่มีข้อมูลเฉลย"}</b></div>
         </div>
-        <article className="explanation-card"><h3>คำอธิบาย</h3><p>{selectedLogQuestion.explanation || "ยังไม่มีคำอธิบายสำหรับข้อนี้ในฐานข้อมูล"}</p></article>
+        <article className="explanation-card"><h3>คำอธิบาย</h3>{isImageSourceLink(selectedLogQuestion.explanation) ? <img className="explanation-image" src={safeDirectImageUrl(selectedLogQuestion.explanation)} alt={`รูปคำอธิบายข้อ ${selectedLogQuestion.position}`} loading="lazy" referrerPolicy="no-referrer" onError={handleImageFallback(selectedLogQuestion.explanation)} /> : <p>{selectedLogQuestion.explanation || "ยังไม่มีคำอธิบายสำหรับข้อนี้ในฐานข้อมูล"}</p>}</article>
         <button className="primary full" onClick={() => setSelectedLogQuestion(null)}>กลับไปดู Dashboard รอบนี้</button>
       </div></div>}
       {result && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="result-title"><div className="modal"><span className="modal-icon result">✓</span><h2 id="result-title">ตรวจคะแนนเรียบร้อย</h2><p>คุณตอบถูก <b>{result.correct_count} จาก {result.total_questions} ข้อ</b> คะแนนหลังหัก Hint <b>{Number(result.score).toFixed(1)}</b></p><div className="resume-summary"><span><small>Hint ที่ใช้</small><b>{result.hint_count} ครั้ง (-{Number(result.hint_penalty).toFixed(1)})</b></span><span><small>ความแม่นยำ</small><b>{Math.round(Number(result.accuracy))}%</b></span></div><button className="primary full" onClick={() => { setResult(null); setView("dashboard"); }}>กลับไปดูพัฒนาการ</button></div></div>}

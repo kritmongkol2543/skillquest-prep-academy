@@ -365,6 +365,7 @@ h1, h2, p { text-wrap: pretty; }
 .result-strip span { color: var(--muted); font-size: 11px; }
 .question-review, .explanation-card { margin-top: 14px; padding: 16px; border-radius: 13px; background: #f7f8f9; }
 .question-review p, .explanation-card p { margin: 0; color: var(--ink); font-size: 13px; line-height: 1.75; white-space: pre-wrap; }
+.explanation-image { display: block; max-width: 100%; height: auto; margin-top: 6px; border-radius: 10px; border: 1px solid var(--line); background: #fff; }
 .answer-review-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 14px; }
 .answer-review-grid > div { padding: 15px; border: 1px solid var(--line); border-radius: 12px; }
 .answer-review-grid span { display: block; margin-bottom: 5px; color: var(--muted); font-size: 11px; }
