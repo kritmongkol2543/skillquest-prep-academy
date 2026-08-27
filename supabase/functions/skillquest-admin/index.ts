@@ -105,6 +105,21 @@ function validateExamPayload(subjectId: unknown, title: unknown, questions: unkn
   return null;
 }
 
+function mapExamWriteError(message: string) {
+  return [
+    "SET_TITLE_EXISTS",
+    "SUBJECT_NOT_AVAILABLE",
+    "INVALID_TITLE",
+    "INVALID_QUESTIONS",
+    "QUESTION_CONTENT_REQUIRED",
+    "AT_LEAST_TWO_CHOICES_REQUIRED",
+    "EXACTLY_ONE_CORRECT_CHOICE_REQUIRED",
+    "CHOICE_CONTENT_REQUIRED",
+    "EDIT_SET_NOT_AVAILABLE",
+    "EDIT_SET_SUPERSEDED",
+  ].find((code) => message.includes(code));
+}
+
 Deno.serve(async (request: Request) => {
   const origin = request.headers.get("Origin");
   if (!isAllowedOrigin(origin)) return json(origin, { error: "ORIGIN_NOT_ALLOWED" }, 403);
@@ -172,10 +187,27 @@ Deno.serve(async (request: Request) => {
   if (body.action === "bootstrap") {
     const [{ data: subjects, error: subjectError }, { data: sets, error: setError }] = await Promise.all([
       admin.from("Subject").select("SubjectID,Subject").eq("Status", true).order("Subject"),
-      admin.from("Category").select("CategoryID,Category,SubjectID,CreatedAt").eq("IsCustomSet", true).order("CreatedAt", { ascending: false }).limit(100),
+      admin.from("Category")
+        .select("CategoryID,Category,SubjectID,CreatedAt")
+        .eq("IsCustomSet", true)
+        .eq("Status", true)
+        .order("CreatedAt", { ascending: false })
+        .limit(100),
     ]);
     if (subjectError || setError) return json(origin, { error: "ADMIN_DATA_UNAVAILABLE" }, 503);
     return json(origin, { data: { subjects: subjects ?? [], sets: sets ?? [] } });
+  }
+
+  if (body.action === "get_exam_set_for_edit") {
+    if (!isUuid(body.category_id)) return json(origin, { error: "INVALID_CATEGORY" }, 400);
+    const { data, error } = await admin.rpc("get_exam_set_for_edit_service", {
+      p_category_id: body.category_id,
+    });
+    if (error) {
+      const known = mapExamWriteError(error.message ?? "");
+      return json(origin, { error: known ?? "EDIT_SET_UNAVAILABLE" }, known ? 409 : 503);
+    }
+    return json(origin, { data });
   }
 
   if (body.action === "create_upload_url") {
@@ -215,18 +247,27 @@ Deno.serve(async (request: Request) => {
       p_created_by: authData.user.id,
     });
     if (error) {
-      const message = error.message ?? "";
-      const known = [
-        "SET_TITLE_EXISTS",
-        "SUBJECT_NOT_AVAILABLE",
-        "INVALID_TITLE",
-        "INVALID_QUESTIONS",
-        "QUESTION_CONTENT_REQUIRED",
-        "AT_LEAST_TWO_CHOICES_REQUIRED",
-        "EXACTLY_ONE_CORRECT_CHOICE_REQUIRED",
-        "CHOICE_CONTENT_REQUIRED",
-      ].find((code) => message.includes(code));
+      const known = mapExamWriteError(error.message ?? "");
       return json(origin, { error: known ?? "CREATE_EXAM_SET_FAILED" }, known ? 400 : 503);
+    }
+    return json(origin, { data });
+  }
+
+  if (body.action === "update_exam_set") {
+    if (!isUuid(body.category_id)) return json(origin, { error: "INVALID_CATEGORY" }, 400);
+    const validationError = validateExamPayload(body.subject_id, body.title, body.questions);
+    if (validationError) return json(origin, { error: validationError }, 400);
+
+    const { data, error } = await admin.rpc("update_exam_set_service", {
+      p_category_id: body.category_id,
+      p_subject_id: body.subject_id,
+      p_title: String(body.title).trim(),
+      p_questions: body.questions,
+      p_created_by: authData.user.id,
+    });
+    if (error) {
+      const known = mapExamWriteError(error.message ?? "");
+      return json(origin, { error: known ?? "UPDATE_EXAM_SET_FAILED" }, known ? 409 : 503);
     }
     return json(origin, { data });
   }
