@@ -59,13 +59,34 @@ async function ensureAdminAuthSession() {
   return signedIn.data.session;
 }
 
+async function throwAdminInvokeError(error: unknown): Promise<never> {
+  if (error && typeof error === "object" && "context" in error) {
+    const context = (error as { context?: unknown }).context;
+    if (context instanceof Response) {
+      try {
+        const payload = await context.clone().json() as { error?: unknown };
+        if (typeof payload.error === "string" && payload.error) {
+          throw new Error(payload.error);
+        }
+      } catch (parseError) {
+        if (parseError instanceof Error && !parseError.message.toLowerCase().includes("json")) {
+          throw parseError;
+        }
+      }
+    }
+  }
+
+  if (error instanceof Error) throw error;
+  throw new Error("ADMIN_REQUEST_FAILED");
+}
+
 async function invokeAdmin<T>(body: Record<string, unknown>) {
   const session = await ensureAdminAuthSession();
   const { data, error } = await supabase.functions.invoke("skillquest-admin", {
     headers: { Authorization: `Bearer ${session.access_token}` },
     body,
   });
-  if (error) throw error;
+  if (error) await throwAdminInvokeError(error);
   const envelope = (data ?? {}) as AdminApiEnvelope<T>;
   if (envelope.error) throw new Error(envelope.error);
   if (envelope.data === undefined) throw new Error("ADMIN_RESPONSE_INVALID");
