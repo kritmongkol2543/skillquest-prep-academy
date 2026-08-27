@@ -43,6 +43,35 @@ export type CreatedExamSet = {
   choice_count: number;
 };
 
+export type UpdatedExamSet = CreatedExamSet & {
+  previous_category_id: string;
+  edited: true;
+};
+
+export type AdminEditableChoice = {
+  answer_id: string;
+  choice_index: number;
+  text: string;
+  image: string | null;
+  correct: boolean;
+};
+
+export type AdminEditableQuestion = {
+  question_id: string;
+  question: string;
+  image: string | null;
+  level: string;
+  explanation: string;
+  choices: AdminEditableChoice[];
+};
+
+export type AdminEditableSet = {
+  category_id: string;
+  title: string;
+  subject_id: string;
+  questions: AdminEditableQuestion[];
+};
+
 type AdminApiEnvelope<T> = {
   data?: T;
   error?: string;
@@ -105,6 +134,14 @@ export async function loadExamAdmin(adminToken: string) {
   return invokeAdmin<AdminBootstrap>({ action: "bootstrap", admin_token: adminToken });
 }
 
+export async function loadExamSetForEdit(adminToken: string, categoryId: string) {
+  return invokeAdmin<AdminEditableSet>({
+    action: "get_exam_set_for_edit",
+    admin_token: adminToken,
+    category_id: categoryId,
+  });
+}
+
 function inferMimeType(file: File) {
   if (file.type) return file.type.toLowerCase();
   const extension = file.name.split(".").pop()?.toLowerCase();
@@ -159,6 +196,23 @@ export async function createExamSet(
   return invokeAdmin<CreatedExamSet>({
     action: "create_exam_set",
     admin_token: adminToken,
+    subject_id: subjectId,
+    title,
+    questions,
+  });
+}
+
+export async function updateExamSet(
+  adminToken: string,
+  categoryId: string,
+  subjectId: string,
+  title: string,
+  questions: AdminExamQuestionPayload[],
+) {
+  return invokeAdmin<UpdatedExamSet>({
+    action: "update_exam_set",
+    admin_token: adminToken,
+    category_id: categoryId,
     subject_id: subjectId,
     title,
     questions,
